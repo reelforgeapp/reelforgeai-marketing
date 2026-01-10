@@ -1,0 +1,59 @@
+# =============================================================================
+# ReelForge Marketing Engine - Dependencies
+# Python 3.11+
+# =============================================================================
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+asyncpg==0.29.0
+
+# Task Queue (Celery + Redis)
+celery[redis]==5.3.6
+redis==5.0.1
+flower==2.0.1
+
+# HTTP Client
+httpx==0.26.0
+
+# Web Scraping
+playwright==1.41.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# Google APIs (YouTube)
+google-api-python-client==2.116.0
+google-auth==2.27.0
+
+# Data Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Template Rendering
+jinja2==3.1.3
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Email Validation
+email-validator==2.1.0
+
+# Retry Logic
+tenacity==8.2.3
+
+# Logging
+structlog==24.1.0
+
+# Error Monitoring (optional)
+sentry-sdk[fastapi,celery]==1.39.1
+
+# NLP for relevance scoring (optional)
+spacy==3.7.2
+
+# Security
+cryptography==41.0.7
