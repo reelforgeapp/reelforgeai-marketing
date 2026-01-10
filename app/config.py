@@ -56,13 +56,17 @@ class Settings(BaseSettings):
     # ===========================================
     # Email Verification
     # ===========================================
+    bouncer_api_key: str = Field(
+        default="",
+        description="Bouncer API key for email verification (primary)"
+    )
     clearout_api_key: str = Field(
         default="",
-        description="Clearout API key for email verification"
+        description="Clearout API key for email verification (alternative)"
     )
     hunter_api_key: str = Field(
         default="",
-        description="Hunter.io API key (alternative to Clearout)"
+        description="Hunter.io API key (alternative)"
     )
     
     # ===========================================

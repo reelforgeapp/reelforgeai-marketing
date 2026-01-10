@@ -163,7 +163,7 @@ async def get_status():
         "redis_status": redis_status,
         "totals": dict(counts) if counts else {},
         "features": {
-            "email_verification": bool(settings.clearout_api_key or settings.hunter_api_key),
+            "email_verification": "bouncer" if settings.bouncer_api_key else ("clearout" if settings.clearout_api_key else ("hunter" if settings.hunter_api_key else None)),
             "webhook_validation": bool(settings.brevo_webhook_secret),
             "error_monitoring": bool(settings.sentry_dsn)
         }
