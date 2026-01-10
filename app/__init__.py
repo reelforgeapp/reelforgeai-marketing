@@ -1,1 +1,1 @@
-"""ReelForge Marketing Engine - Application Package"""
+"""ReelForge Marketing Engine"""
