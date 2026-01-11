@@ -130,7 +130,7 @@ class ApifyDiscovery:
             'instagram',
             0.5,
             [keyword],
-            bio[:500] if bio else '{}',
+            '{}',
             'discovered'
         )
         
@@ -231,7 +231,7 @@ class ApifyDiscovery:
             'tiktok',
             0.5,
             [keyword],
-            bio[:500] if bio else '{}',
+            '{}',
             'discovered'
         )
         

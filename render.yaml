@@ -22,12 +22,45 @@ services:
         sync: false
       - key: BREVO_SENDER_NAME
         sync: false
+      - key: APIFY_API_TOKEN
+        sync: false
+
+  - type: worker
+    name: reelforge-worker
+    runtime: docker
+    plan: starter
+    dockerCommand: celery -A celery_config worker --beat --loglevel=info --concurrency=2
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reelforge-marketing-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: reelforge-redis
+          property: connectionString
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        sync: false
+      - key: APIFY_API_TOKEN
+        sync: false
+      - key: BOUNCER_API_KEY
+        sync: false
+      - key: MIN_INSTAGRAM_FOLLOWERS
+        sync: false
+      - key: MIN_TIKTOK_FOLLOWERS
+        sync: false
 
 databases:
   - name: reelforge-marketing-db
     plan: starter
 
-services:
   - type: redis
     name: reelforge-redis
     plan: starter
