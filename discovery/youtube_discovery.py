@@ -38,8 +38,7 @@ class YouTubeDiscovery:
                     part='snippet',
                     type='video',
                     maxResults=min(max_results, 50),
-                    order='relevance',
-                    relevantLanguage='en'
+                    order='relevance'
                 ).execute()
             )
             
@@ -105,16 +104,15 @@ class YouTubeDiscovery:
         await self.db.execute("""
             INSERT INTO marketing_prospects (
                 youtube_channel_id, youtube_handle, full_name,
-                youtube_subscribers, youtube_total_views,
-                email, primary_platform, relevance_score,
-                competitor_mentions, raw_data, status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+                youtube_subscribers, email, primary_platform,
+                relevance_score, competitor_mentions, raw_data,
+                status, discovered_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
         """,
             channel_id,
             custom_url or channel_id,
             channel_title,
             subscriber_count,
-            int(statistics.get('viewCount', 0)),
             email,
             'youtube',
             0.6,

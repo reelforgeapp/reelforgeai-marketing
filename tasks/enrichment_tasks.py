@@ -1,6 +1,8 @@
 """
 ReelForge Marketing Engine - Enrichment Tasks
 """
+import sys
+sys.path.insert(0, '/app')
 
 import asyncio
 import structlog

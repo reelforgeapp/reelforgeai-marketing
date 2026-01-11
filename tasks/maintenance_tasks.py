@@ -1,6 +1,8 @@
 """
 ReelForge Marketing Engine - Maintenance Tasks
 """
+import sys
+sys.path.insert(0, '/app')
 
 import asyncio
 from datetime import datetime, timedelta
