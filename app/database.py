@@ -1,124 +1,121 @@
 """
-ReelForge Marketing Engine - Database Module (Fixed for Celery)
+ReelForge Marketing Engine - Database Connection
+Async PostgreSQL connection pool management with lazy initialization
 """
 
 import asyncio
 import asyncpg
+from typing import Optional
 import structlog
-from contextlib import asynccontextmanager
 
 from app.config import get_settings
 
 logger = structlog.get_logger()
 
-# Global pool for FastAPI (web requests only)
-_pool = None
+# Global connection pool
+_pool: Optional[asyncpg.Pool] = None
+_pool_lock = asyncio.Lock()
 
 
-async def init_database():
-    """Initialize database pool for FastAPI web server."""
+async def init_database() -> asyncpg.Pool:
+    """Initialize the database connection pool."""
     global _pool
-    if _pool is None:
+    
+    if _pool is not None:
+        return _pool
+    
+    async with _pool_lock:
+        if _pool is not None:
+            return _pool
+        
         settings = get_settings()
-        _pool = await asyncpg.create_pool(
-            settings.database_url,
-            min_size=settings.db_pool_min_size,
-            max_size=settings.db_pool_max_size,
-            command_timeout=60
-        )
-        logger.info("Database pool initialized", min_size=settings.db_pool_min_size, max_size=settings.db_pool_max_size)
-    return _pool
+        
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                _pool = await asyncpg.create_pool(
+                    settings.database_url,
+                    min_size=settings.db_pool_min_size,
+                    max_size=settings.db_pool_max_size,
+                    command_timeout=60,
+                )
+                
+                logger.info(
+                    "Database pool initialized",
+                    min_size=settings.db_pool_min_size,
+                    max_size=settings.db_pool_max_size
+                )
+                
+                return _pool
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Database connection failed, retrying in {retry_delay}s",
+                        attempt=attempt + 1,
+                        error=str(e)
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    logger.error(f"Failed to initialize database pool: {e}")
+                    raise
 
 
 async def close_database():
-    """Close database pool."""
+    """Close the database connection pool."""
     global _pool
-    if _pool:
+    
+    if _pool is not None:
         await _pool.close()
         _pool = None
         logger.info("Database pool closed")
 
 
-def get_database():
-    """Get the database pool (for FastAPI dependency injection)."""
+async def get_database_async() -> asyncpg.Pool:
+    """Get the database connection pool with lazy initialization."""
     global _pool
+    
     if _pool is None:
-        raise RuntimeError("Database pool not initialized. Call init_database() first.")
+        await init_database()
+    
     return _pool
 
 
-async def get_database_async():
-    """
-    Get database connection for Celery tasks.
-    Creates a fresh connection each time to avoid event loop issues.
-    """
-    settings = get_settings()
-    
-    # For Celery tasks, create a fresh connection (not from pool)
-    # This avoids event loop conflicts
-    conn = await asyncpg.connect(
-        settings.database_url,
-        command_timeout=60
-    )
-    return CeleryDatabaseWrapper(conn)
-
-
-class CeleryDatabaseWrapper:
-    """Wrapper to make single connection look like a pool for Celery tasks."""
-    
-    def __init__(self, conn):
-        self._conn = conn
-    
-    async def fetch(self, query, *args):
-        return await self._conn.fetch(query, *args)
-    
-    async def fetchrow(self, query, *args):
-        return await self._conn.fetchrow(query, *args)
-    
-    async def fetchval(self, query, *args):
-        return await self._conn.fetchval(query, *args)
-    
-    async def execute(self, query, *args):
-        return await self._conn.execute(query, *args)
-    
-    async def close(self):
-        await self._conn.close()
-
-
-@asynccontextmanager
-async def get_db_connection():
-    """Context manager for database connection in Celery tasks."""
-    settings = get_settings()
-    conn = await asyncpg.connect(settings.database_url, command_timeout=60)
-    try:
-        yield conn
-    finally:
-        await conn.close()
+def get_database() -> asyncpg.Pool:
+    """Get the database connection pool (sync version)."""
+    if _pool is None:
+        raise RuntimeError(
+            "Database not initialized. Use get_database_async() for lazy initialization."
+        )
+    return _pool
 
 
 class DatabaseTransaction:
-    """
-    Async context manager for database transactions in Celery tasks.
-    Creates its own connection to avoid event loop issues.
-    """
+    """Context manager for database transactions."""
     
-    def __init__(self):
-        self._conn = None
-        self._transaction = None
+    def __init__(self, pool: asyncpg.Pool = None):
+        self._pool = pool
+        self.connection = None
+        self.transaction = None
     
     async def __aenter__(self):
-        settings = get_settings()
-        self._conn = await asyncpg.connect(settings.database_url, command_timeout=60)
-        self._transaction = self._conn.transaction()
-        await self._transaction.start()
-        return self._conn
+        if self._pool is None:
+            self._pool = await get_database_async()
+        
+        self.connection = await self._pool.acquire()
+        self.transaction = self.connection.transaction()
+        await self.transaction.start()
+        return self.connection
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         try:
-            if exc_type is None:
-                await self._transaction.commit()
+            if exc_type is not None:
+                await self.transaction.rollback()
             else:
-                await self._transaction.rollback()
+                await self.transaction.commit()
         finally:
-            await self._conn.close()
-        return False
+            if self.connection:
+                await self._pool.release(self.connection)
