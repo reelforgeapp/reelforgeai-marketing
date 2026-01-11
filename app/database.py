@@ -34,12 +34,15 @@ async def close_database():
 
 
 class DatabaseTransaction:
-    def __init__(self, pool):
+    def __init__(self, pool=None):
         self._pool = pool
+        self._owns_pool = pool is None
         self.connection = None
         self.transaction = None
     
     async def __aenter__(self):
+        if self._pool is None:
+            self._pool = await get_database_async()
         self.connection = await self._pool.acquire()
         self.transaction = self.connection.transaction()
         await self.transaction.start()
@@ -54,3 +57,5 @@ class DatabaseTransaction:
         finally:
             if self.connection:
                 await self._pool.release(self.connection)
+            if self._owns_pool and self._pool:
+                await self._pool.close()

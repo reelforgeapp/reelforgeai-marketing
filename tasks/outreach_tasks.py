@@ -7,7 +7,7 @@ sys.path.insert(0, '/app')
 import asyncio
 import json
 from datetime import datetime, timedelta
-from jinja2 import Template
+from jinja2 import Template, UndefinedError
 import structlog
 import redis.asyncio as redis
 
@@ -18,6 +18,45 @@ from app.database import get_database_async, DatabaseTransaction
 logger = structlog.get_logger()
 
 
+def safe_json_loads(data, default=None):
+    """Safely parse JSON from string or return dict if already parsed."""
+    if default is None:
+        default = {}
+    if data is None:
+        return default
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        return data
+    if isinstance(data, str):
+        try:
+            return json.loads(data) if data.strip() else default
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("Failed to parse JSON", data=data[:100] if len(data) > 100 else data)
+            return default
+    return default
+
+
+def safe_render_template(template_str: str, data: dict, default: str = "") -> str:
+    """Safely render Jinja2 template with fallback."""
+    if not template_str:
+        return default
+    try:
+        return Template(template_str).render(**data)
+    except UndefinedError as e:
+        logger.warning("Template variable undefined", error=str(e), template=template_str[:50])
+        # Try rendering with missing vars replaced by placeholders
+        try:
+            from jinja2 import Environment, Undefined
+            env = Environment(undefined=Undefined)
+            return env.from_string(template_str).render(**data)
+        except:
+            return default
+    except Exception as e:
+        logger.error("Template render failed", error=str(e))
+        return default
+
+
 @celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='outreach')
 def process_pending_sequences(self):
     return asyncio.run(_process_sequences_async())
@@ -25,7 +64,7 @@ def process_pending_sequences(self):
 
 async def _process_sequences_async() -> dict:
     settings = get_settings()
-    db = await get_database_async()
+    db = None
     
     results = {
         "processed": 0,
@@ -39,6 +78,7 @@ async def _process_sequences_async() -> dict:
         return {"status": "error", "error": "Brevo API key not configured"}
     
     try:
+        db = await get_database_async()
         from outreach.brevo_client import BrevoClient
         brevo = BrevoClient()
         
@@ -58,7 +98,7 @@ async def _process_sequences_async() -> dict:
             pending = await db.fetch("""
                 SELECT os.id, os.prospect_id, os.sequence_name, os.current_step,
                        os.total_steps, os.personalization_data,
-                       mp.email, mp.full_name,
+                       mp.email, mp.full_name, mp.competitor_mentions,
                        st.steps
                 FROM outreach_sequences os
                 JOIN marketing_prospects mp ON os.prospect_id = mp.id
@@ -76,39 +116,88 @@ async def _process_sequences_async() -> dict:
                 results["processed"] += 1
                 
                 try:
-                    import json; steps = json.loads(seq["steps"]) if isinstance(seq["steps"], str) else (seq.get("steps") or [])
-                    current_step = seq["current_step"]
+                    # Parse steps JSON safely
+                    steps = safe_json_loads(seq["steps"], [])
+                    current_step = seq["current_step"] or 0
                     
+                    # Edge case: current_step beyond available steps
                     if current_step >= len(steps):
                         await db.execute(
-                            "UPDATE outreach_sequences SET status = 'completed' WHERE id = $1",
+                            "UPDATE outreach_sequences SET status = 'completed', completed_at = NOW() WHERE id = $1",
                             seq["id"]
                         )
+                        results["skipped"] += 1
                         continue
                     
                     step = steps[current_step]
                     template_name = step.get("body_template")
                     
+                    # Edge case: no template name in step config
                     if not template_name:
+                        logger.warning("No template in step config", sequence_id=str(seq["id"]), step=current_step)
                         results["skipped"] += 1
                         continue
                     
                     email_template = await db.fetchrow(
-                        "SELECT subject_template, html_template, text_template FROM email_templates WHERE name = $1",
+                        "SELECT subject_template, html_template, text_template FROM email_templates WHERE name = $1 AND is_active = TRUE",
                         template_name
                     )
                     
+                    # Edge case: template doesn't exist
                     if not email_template:
+                        logger.warning("Email template not found", template=template_name)
                         results["skipped"] += 1
                         continue
                     
-                    pdata = seq.get("personalization_data") or {}
+                    # Parse personalization data safely
+                    pdata = safe_json_loads(seq["personalization_data"], {})
                     
-                    subject = Template(email_template["subject_template"]).render(**pdata)
-                    html_content = Template(email_template["html_template"]).render(**pdata)
+                    # Edge case: ensure required fields exist with fallbacks
+                    if "first_name" not in pdata or not pdata["first_name"]:
+                        full_name = seq["full_name"] or ""
+                        pdata["first_name"] = full_name.split()[0] if full_name else "there"
+                    
+                    if "full_name" not in pdata:
+                        pdata["full_name"] = seq["full_name"] or ""
+                    
+                    if "affiliate_link" not in pdata:
+                        pdata["affiliate_link"] = f"{settings.affiliate_signup_base_url}?ref={str(seq['prospect_id'])[:8]}"
+                    
+                    # Edge case: add competitor from prospect if not in pdata
+                    if "competitor" not in pdata or not pdata["competitor"]:
+                        competitor_mentions = seq.get("competitor_mentions")
+                        if competitor_mentions and len(competitor_mentions) > 0:
+                            pdata["competitor"] = competitor_mentions[0]
+                        else:
+                            pdata["competitor"] = "AI video tools"
+                    
+                    # Edge case: validate email format
+                    to_email = seq["email"]
+                    if not to_email or "@" not in to_email:
+                        logger.warning("Invalid email", sequence_id=str(seq["id"]))
+                        results["skipped"] += 1
+                        continue
+                    
+                    # Render templates safely
+                    subject = safe_render_template(
+                        email_template["subject_template"], 
+                        pdata, 
+                        f"Partnership opportunity for {pdata.get('first_name', 'you')}"
+                    )
+                    html_content = safe_render_template(
+                        email_template["html_template"], 
+                        pdata,
+                        f"<p>Hi {pdata.get('first_name', 'there')},</p><p>We have a partnership opportunity for you.</p>"
+                    )
+                    
+                    # Edge case: empty rendered content
+                    if not subject or not html_content:
+                        logger.warning("Empty rendered content", sequence_id=str(seq["id"]))
+                        results["skipped"] += 1
+                        continue
                     
                     result = await brevo.send_email(
-                        to_email=seq["email"],
+                        to_email=to_email,
                         to_name=seq["full_name"] or "",
                         subject=subject,
                         html_content=html_content,
@@ -127,25 +216,45 @@ async def _process_sequences_async() -> dict:
                                     open_count, click_count
                                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', NOW(), 0, 0)
                             """, seq["id"], seq["prospect_id"], current_step + 1, template_name,
-                                subject, seq["email"], result.get("message_id"))
+                                subject, to_email, result.get("message_id"))
+                            
+                            # Update prospect stats
+                            await conn.execute("""
+                                UPDATE marketing_prospects 
+                                SET total_emails_sent = COALESCE(total_emails_sent, 0) + 1,
+                                    last_contacted_at = NOW(),
+                                    first_contacted_at = COALESCE(first_contacted_at, NOW()),
+                                    status = 'contacted'
+                                WHERE id = $1
+                            """, seq["prospect_id"])
                             
                             next_step = current_step + 1
                             if next_step >= len(steps):
                                 await conn.execute(
-                                    "UPDATE outreach_sequences SET status = 'completed', current_step = $1 WHERE id = $2",
+                                    "UPDATE outreach_sequences SET status = 'completed', current_step = $1, completed_at = NOW() WHERE id = $2",
                                     next_step, seq["id"]
                                 )
                             else:
-                                next_send = datetime.utcnow() + timedelta(days=steps[next_step].get("delay_days", 3))
+                                delay_days = steps[next_step].get("delay_days", 3)
+                                next_send = datetime.utcnow() + timedelta(days=delay_days)
+                                
+                                # Edge case: skip weekends if configured
+                                if steps[next_step].get("skip_weekends", False):
+                                    while next_send.weekday() >= 5:  # 5=Saturday, 6=Sunday
+                                        next_send += timedelta(days=1)
+                                
                                 await conn.execute(
                                     "UPDATE outreach_sequences SET status = 'active', current_step = $1, next_send_at = $2 WHERE id = $3",
                                     next_step, next_send, seq["id"]
                                 )
                         
                         results["sent"] += 1
+                        logger.info("Email sent", to=to_email, step=current_step + 1, sequence=seq["sequence_name"])
                     else:
+                        logger.error("Brevo send failed", error=result.get("error"), to=to_email)
                         results["errors"] += 1
                     
+                    # Rate limit between sends
                     await asyncio.sleep(0.5)
                     
                 except Exception as e:
@@ -157,6 +266,9 @@ async def _process_sequences_async() -> dict:
     except Exception as e:
         logger.error("Sequence processing failed", error=str(e))
         results["error"] = str(e)
+    finally:
+        if db:
+            await db.close()
     
     return results
 
@@ -168,69 +280,153 @@ def auto_enroll_prospects(self):
 
 async def _auto_enroll_async() -> dict:
     settings = get_settings()
-    db = await get_database_async()
+    db = None
     
     results = {"enrolled": 0, "skipped": 0, "errors": 0}
     
-    prospects = await db.fetch("""
-        SELECT mp.id, mp.email, mp.full_name, mp.primary_platform, mp.relevance_score
-        FROM marketing_prospects mp
-        WHERE mp.email IS NOT NULL
-          AND mp.email_verified = TRUE
-          AND mp.status IN ('discovered', 'enriched')
-          AND mp.relevance_score >= $1
-          AND NOT EXISTS (
-              SELECT 1 FROM outreach_sequences os
-              WHERE os.prospect_id = mp.id AND os.status IN ('pending', 'active')
-          )
-        ORDER BY mp.relevance_score DESC
-        LIMIT 25
-    """, settings.min_relevance_score)
-    
-    for prospect in prospects:
-        try:
-            platform = prospect["primary_platform"] or "youtube"
-            sequence_name = f"{platform}_creator"
-            
-            template = await db.fetchrow(
-                "SELECT id, total_steps, steps FROM sequence_templates WHERE name = $1 AND is_active = TRUE",
-                sequence_name
-            )
-            
-            if not template:
+    try:
+        db = await get_database_async()
+        
+        prospects = await db.fetch("""
+            SELECT mp.id, mp.email, mp.full_name, mp.primary_platform, 
+                   mp.relevance_score, mp.competitor_mentions
+            FROM marketing_prospects mp
+            WHERE mp.email IS NOT NULL
+              AND mp.email_verified = TRUE
+              AND mp.status IN ('discovered', 'enriched')
+              AND mp.relevance_score >= $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM outreach_sequences os
+                  WHERE os.prospect_id = mp.id AND os.status IN ('pending', 'active', 'completed')
+              )
+            ORDER BY mp.relevance_score DESC
+            LIMIT 25
+        """, settings.min_relevance_score)
+        
+        for prospect in prospects:
+            try:
+                platform = prospect["primary_platform"] or "youtube"
+                sequence_name = f"{platform}_creator"
+                
                 template = await db.fetchrow(
-                    "SELECT id, total_steps, steps FROM sequence_templates WHERE is_active = TRUE LIMIT 1"
+                    "SELECT id, total_steps, steps FROM sequence_templates WHERE name = $1 AND is_active = TRUE",
+                    sequence_name
                 )
-            
-            if not template:
-                results["skipped"] += 1
-                continue
-            
-            import json; steps = json.loads(template["steps"]) if isinstance(template["steps"], str) else (template.get("steps") or [])
-            first_delay = steps[0].get("delay_days", 1) if steps else 1
-            first_send = datetime.utcnow() + timedelta(days=first_delay)
-            
-            first_name = (prospect["full_name"] or "").split()[0] if prospect["full_name"] else "there"
-            
-            pdata = {
-                "first_name": first_name,
-                "full_name": prospect["full_name"] or "",
-                "affiliate_link": f"{settings.affiliate_signup_base_url}?ref={str(prospect['id'])[:8]}"
-            }
-            
-            await db.execute("""
-                INSERT INTO outreach_sequences (
-                    prospect_id, sequence_template_id, sequence_name, total_steps,
-                    current_step, status, next_send_at, personalization_data, created_at
-                ) VALUES ($1, $2, $3, $4, 0, 'pending', $5, $6, NOW())
-            """, prospect["id"], template["id"], sequence_name, template["total_steps"],
-                first_send, json.dumps(pdata))
-            
-            results["enrolled"] += 1
-            
-        except Exception as e:
-            logger.error("Enrollment failed", prospect_id=str(prospect["id"]), error=str(e))
-            results["errors"] += 1
+                
+                # Fallback to any active template
+                if not template:
+                    template = await db.fetchrow(
+                        "SELECT id, total_steps, steps FROM sequence_templates WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1"
+                    )
+                
+                if not template:
+                    logger.warning("No sequence template found", platform=platform)
+                    results["skipped"] += 1
+                    continue
+                
+                # Parse steps safely
+                steps = safe_json_loads(template["steps"], [])
+                
+                # Edge case: empty steps array
+                if not steps:
+                    logger.warning("Empty steps in template", template_id=str(template["id"]))
+                    results["skipped"] += 1
+                    continue
+                
+                first_delay = steps[0].get("delay_days", 0)
+                first_send = datetime.utcnow() + timedelta(days=first_delay)
+                
+                # Skip weekends for first send if configured
+                if steps[0].get("skip_weekends", False):
+                    while first_send.weekday() >= 5:
+                        first_send += timedelta(days=1)
+                
+                # Build personalization data
+                full_name = prospect["full_name"] or ""
+                first_name = full_name.split()[0] if full_name else "there"
+                
+                # Get competitor from prospect data
+                competitor_mentions = prospect.get("competitor_mentions")
+                competitor = "AI video tools"
+                if competitor_mentions and len(competitor_mentions) > 0:
+                    competitor = competitor_mentions[0]
+                
+                pdata = {
+                    "first_name": first_name,
+                    "full_name": full_name,
+                    "email": prospect["email"],
+                    "competitor": competitor,
+                    "affiliate_link": f"{settings.affiliate_signup_base_url}?ref={str(prospect['id'])[:8]}"
+                }
+                
+                await db.execute("""
+                    INSERT INTO outreach_sequences (
+                        prospect_id, sequence_template_id, sequence_name, total_steps,
+                        current_step, status, next_send_at, personalization_data, created_at
+                    ) VALUES ($1, $2, $3, $4, 0, 'pending', $5, $6, NOW())
+                """, prospect["id"], template["id"], sequence_name, template["total_steps"],
+                    first_send, json.dumps(pdata))
+                
+                # Update prospect status
+                await db.execute(
+                    "UPDATE marketing_prospects SET status = 'enrolled' WHERE id = $1",
+                    prospect["id"]
+                )
+                
+                results["enrolled"] += 1
+                logger.info("Prospect enrolled", prospect_id=str(prospect["id"]), sequence=sequence_name)
+                
+            except Exception as e:
+                logger.error("Enrollment failed", prospect_id=str(prospect["id"]), error=str(e))
+                results["errors"] += 1
+        
+        logger.info("Auto-enrollment complete", **results)
+        
+    except Exception as e:
+        logger.error("Auto-enrollment failed", error=str(e))
+        results["error"] = str(e)
+    finally:
+        if db:
+            await db.close()
     
-    logger.info("Auto-enrollment complete", **results)
     return results
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='outreach')
+def stop_sequence_on_reply(self, prospect_id: str):
+    """Stop active sequences when a prospect replies."""
+    return asyncio.run(_stop_sequence_async(prospect_id, "replied"))
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='outreach')
+def stop_sequence_on_unsubscribe(self, prospect_id: str):
+    """Stop active sequences when a prospect unsubscribes."""
+    return asyncio.run(_stop_sequence_async(prospect_id, "unsubscribed"))
+
+
+async def _stop_sequence_async(prospect_id: str, reason: str) -> dict:
+    db = None
+    try:
+        db = await get_database_async()
+        
+        result = await db.execute("""
+            UPDATE outreach_sequences 
+            SET status = 'stopped', stopped_reason = $1, completed_at = NOW()
+            WHERE prospect_id = $2 AND status IN ('pending', 'active')
+        """, reason, prospect_id)
+        
+        # Update prospect status
+        await db.execute(
+            "UPDATE marketing_prospects SET status = $1, replied_at = CASE WHEN $1 = 'replied' THEN NOW() ELSE replied_at END WHERE id = $2",
+            reason, prospect_id
+        )
+        
+        logger.info("Sequence stopped", prospect_id=prospect_id, reason=reason)
+        return {"success": True, "reason": reason}
+        
+    except Exception as e:
+        logger.error("Failed to stop sequence", error=str(e))
+        return {"success": False, "error": str(e)}
+    finally:
+        if db:
+            await db.close()
