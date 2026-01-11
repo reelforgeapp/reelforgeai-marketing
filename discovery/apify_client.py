@@ -13,6 +13,11 @@ logger = structlog.get_logger()
 
 
 class ApifyDiscovery:
+    # Use hashtag/search scrapers instead of profile scrapers
+    INSTAGRAM_HASHTAG_ACTOR = "apify/instagram-hashtag-scraper"
+    INSTAGRAM_SEARCH_ACTOR = "apify/instagram-scraper"
+    TIKTOK_SCRAPER_ACTOR = "clockworks/tiktok-scraper"
+    
     def __init__(self, api_token: str, db):
         self.settings = get_settings()
         self.client = ApifyClient(api_token)
@@ -26,21 +31,35 @@ class ApifyDiscovery:
                 "SELECT keyword FROM competitor_keywords WHERE platform = 'instagram' AND is_active = TRUE LIMIT 5"
             )
             
+            if not keywords:
+                # Use default hashtags if none configured
+                keywords = [
+                    {"keyword": "aitools"},
+                    {"keyword": "aivideoediting"},
+                    {"keyword": "contentcreator"}
+                ]
+            
             for kw in keywords:
                 try:
+                    hashtag = kw['keyword'].replace('#', '').replace(' ', '')
+                    
                     run_input = {
-                        "search": kw['keyword'],
-                        "resultsType": "posts",
+                        "hashtags": [hashtag],
                         "resultsLimit": limit,
+                        "searchType": "hashtag"
                     }
                     
+                    logger.info("Running Instagram hashtag search", hashtag=hashtag)
+                    
                     run = await asyncio.to_thread(
-                        lambda: self.client.actor(self.settings.apify_instagram_actor).call(run_input=run_input)
+                        lambda ri=run_input: self.client.actor(self.INSTAGRAM_HASHTAG_ACTOR).call(run_input=ri)
                     )
                     
                     items = await asyncio.to_thread(
-                        lambda: list(self.client.dataset(run["defaultDatasetId"]).iterate_items())
+                        lambda r=run: list(self.client.dataset(r["defaultDatasetId"]).iterate_items())
                     )
+                    
+                    logger.info("Instagram search results", hashtag=hashtag, count=len(items))
                     
                     for item in items:
                         try:
@@ -49,6 +68,7 @@ class ApifyDiscovery:
                                 results["prospects_created"] += 1
                             results["profiles_found"] += 1
                         except Exception as e:
+                            logger.error("Profile processing error", error=str(e))
                             results["errors"] += 1
                             
                 except Exception as e:
@@ -59,10 +79,16 @@ class ApifyDiscovery:
             logger.error("Instagram discovery failed", error=str(e))
             results["errors"] += 1
         
+        logger.info("Instagram discovery complete", **results)
         return results
     
     async def _process_instagram_profile(self, item: dict, keyword: str) -> bool:
-        username = item.get('ownerUsername') or item.get('username')
+        # Handle different response formats
+        username = (
+            item.get('ownerUsername') or 
+            item.get('username') or
+            item.get('owner', {}).get('username')
+        )
         if not username:
             return False
         
@@ -73,26 +99,42 @@ class ApifyDiscovery:
         if existing:
             return False
         
-        followers = item.get('followersCount', 0)
+        # Get follower count from various possible fields
+        followers = (
+            item.get('followersCount') or 
+            item.get('owner', {}).get('followersCount') or
+            0
+        )
+        
         if followers < self.settings.min_instagram_followers:
             return False
+        
+        full_name = (
+            item.get('fullName') or 
+            item.get('owner', {}).get('fullName') or
+            ''
+        )
+        
+        bio = item.get('biography') or item.get('owner', {}).get('biography') or ''
         
         await self.db.execute("""
             INSERT INTO marketing_prospects (
                 instagram_handle, full_name, instagram_followers,
                 primary_platform, relevance_score, competitor_mentions,
-                status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                raw_data, status, discovered_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         """,
             username,
-            item.get('fullName', ''),
+            full_name,
             followers,
             'instagram',
             0.5,
             [keyword],
+            bio[:500] if bio else '{}',
             'discovered'
         )
         
+        logger.info("Instagram prospect created", username=username, followers=followers)
         return True
     
     async def discover_tiktok_creators(self, limit: int = 50) -> dict:
@@ -103,20 +145,34 @@ class ApifyDiscovery:
                 "SELECT keyword FROM competitor_keywords WHERE platform = 'tiktok' AND is_active = TRUE LIMIT 5"
             )
             
+            if not keywords:
+                # Use default keywords if none configured
+                keywords = [
+                    {"keyword": "ai video editing"},
+                    {"keyword": "ai tools review"},
+                    {"keyword": "content creation tips"}
+                ]
+            
             for kw in keywords:
                 try:
                     run_input = {
                         "searchQueries": [kw['keyword']],
                         "resultsPerPage": limit,
+                        "shouldDownloadVideos": False,
+                        "shouldDownloadCovers": False
                     }
                     
+                    logger.info("Running TikTok search", keyword=kw['keyword'])
+                    
                     run = await asyncio.to_thread(
-                        lambda: self.client.actor(self.settings.apify_tiktok_actor).call(run_input=run_input)
+                        lambda ri=run_input: self.client.actor(self.TIKTOK_SCRAPER_ACTOR).call(run_input=ri)
                     )
                     
                     items = await asyncio.to_thread(
-                        lambda: list(self.client.dataset(run["defaultDatasetId"]).iterate_items())
+                        lambda r=run: list(self.client.dataset(r["defaultDatasetId"]).iterate_items())
                     )
+                    
+                    logger.info("TikTok search results", keyword=kw['keyword'], count=len(items))
                     
                     for item in items:
                         try:
@@ -125,6 +181,7 @@ class ApifyDiscovery:
                                 results["prospects_created"] += 1
                             results["profiles_found"] += 1
                         except Exception as e:
+                            logger.error("TikTok profile processing error", error=str(e))
                             results["errors"] += 1
                             
                 except Exception as e:
@@ -135,10 +192,14 @@ class ApifyDiscovery:
             logger.error("TikTok discovery failed", error=str(e))
             results["errors"] += 1
         
+        logger.info("TikTok discovery complete", **results)
         return results
     
     async def _process_tiktok_profile(self, item: dict, keyword: str) -> bool:
-        username = item.get('authorMeta', {}).get('name') or item.get('author')
+        # Handle different response formats
+        author_meta = item.get('authorMeta', {})
+        username = author_meta.get('name') or item.get('author') or item.get('uniqueId')
+        
         if not username:
             return False
         
@@ -149,24 +210,30 @@ class ApifyDiscovery:
         if existing:
             return False
         
-        followers = item.get('authorMeta', {}).get('fans', 0)
+        followers = author_meta.get('fans') or author_meta.get('followers') or 0
+        
         if followers < self.settings.min_tiktok_followers:
             return False
+        
+        full_name = author_meta.get('nickName') or author_meta.get('nickname') or ''
+        bio = author_meta.get('signature') or ''
         
         await self.db.execute("""
             INSERT INTO marketing_prospects (
                 tiktok_handle, full_name, tiktok_followers,
                 primary_platform, relevance_score, competitor_mentions,
-                status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                raw_data, status, discovered_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         """,
             username,
-            item.get('authorMeta', {}).get('nickName', ''),
+            full_name,
             followers,
             'tiktok',
             0.5,
             [keyword],
+            bio[:500] if bio else '{}',
             'discovered'
         )
         
+        logger.info("TikTok prospect created", username=username, followers=followers)
         return True
