@@ -76,7 +76,7 @@ async def _process_sequences_async() -> dict:
                 results["processed"] += 1
                 
                 try:
-                    steps = seq.get("steps") or []
+                    import json; steps = json.loads(seq["steps"]) if isinstance(seq["steps"], str) else (seq.get("steps") or [])
                     current_step = seq["current_step"]
                     
                     if current_step >= len(steps):
@@ -206,7 +206,7 @@ async def _auto_enroll_async() -> dict:
                 results["skipped"] += 1
                 continue
             
-            steps = template.get("steps") or []
+            import json; steps = json.loads(template["steps"]) if isinstance(template["steps"], str) else (template.get("steps") or [])
             first_delay = steps[0].get("delay_days", 1) if steps else 1
             first_send = datetime.utcnow() + timedelta(days=first_delay)
             

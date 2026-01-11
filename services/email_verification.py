@@ -67,7 +67,7 @@ class BouncerClient:
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
         
         prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified IS NULL ORDER BY relevance_score DESC LIMIT $1",
+            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
             limit
         )
         
@@ -132,7 +132,7 @@ class ClearoutClient:
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
         
         prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified IS NULL ORDER BY relevance_score DESC LIMIT $1",
+            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
             limit
         )
         
@@ -191,7 +191,7 @@ class HunterClient:
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
         
         prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified IS NULL ORDER BY relevance_score DESC LIMIT $1",
+            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
             limit
         )
         
