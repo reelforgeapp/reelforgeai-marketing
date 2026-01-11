@@ -67,18 +67,30 @@ async def health_check():
 
 @app.get("/status")
 async def get_status():
-    db = await get_database_async()
-    
+    db = None
     try:
+        db = await get_database_async()
+        
         counts = await db.fetchrow("""
             SELECT
                 (SELECT COUNT(*) FROM marketing_prospects) as prospects,
+                (SELECT COUNT(*) FROM marketing_prospects WHERE email IS NOT NULL) as with_email,
                 (SELECT COUNT(*) FROM marketing_prospects WHERE email_verified = TRUE) as verified,
+                (SELECT COUNT(*) FROM outreach_sequences WHERE status = 'pending') as pending_sequences,
                 (SELECT COUNT(*) FROM outreach_sequences WHERE status = 'active') as active_sequences,
+                (SELECT COUNT(*) FROM outreach_sequences WHERE status = 'completed') as completed_sequences,
+                (SELECT COUNT(*) FROM email_sends) as total_emails_sent,
+                (SELECT COUNT(*) FROM email_sends WHERE status = 'delivered') as delivered,
+                (SELECT COUNT(*) FROM email_sends WHERE status = 'opened') as opened,
+                (SELECT COUNT(*) FROM email_sends WHERE status = 'clicked') as clicked,
                 (SELECT COUNT(*) FROM affiliates WHERE status = 'active') as affiliates
         """)
-    except:
-        counts = {"prospects": 0, "verified": 0, "active_sequences": 0, "affiliates": 0}
+    except Exception as e:
+        logger.error("Status check failed", error=str(e))
+        counts = None
+    finally:
+        if db:
+            await db.close()
     
     verification_service = None
     if settings.bouncer_api_key:
@@ -90,7 +102,7 @@ async def get_status():
     
     return {
         "status": "running",
-        "version": "3.0.0",
+        "version": "3.3.0",
         "totals": dict(counts) if counts else {},
         "features": {
             "email_verification": verification_service,
@@ -101,13 +113,18 @@ async def get_status():
 
 @app.post("/webhooks/brevo")
 async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_webhook)):
+    """Handle Brevo webhook events with minimal DB connections."""
+    db = None
     try:
         payload = json.loads(body)
-        db = await get_database_async()
         
         event_type = payload.get("event")
         message_id = payload.get("message-id")
         email = payload.get("email")
+        
+        # Skip if no message_id to update
+        if not message_id:
+            return {"status": "skipped", "reason": "no message_id"}
         
         timestamp_str = payload.get("date") or payload.get("ts_event")
         try:
@@ -115,24 +132,53 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
         except:
             timestamp = datetime.utcnow()
         
-        if event_type == "delivered":
-            await db.execute("UPDATE email_sends SET status = 'delivered', delivered_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
-        elif event_type in ("opened", "uniqueOpened"):
-            await db.execute("UPDATE email_sends SET status = 'opened', first_opened_at = COALESCE(first_opened_at, $1), open_count = COALESCE(open_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
-        elif event_type in ("clicked", "uniqueClicked"):
-            await db.execute("UPDATE email_sends SET status = 'clicked', first_clicked_at = COALESCE(first_clicked_at, $1), click_count = COALESCE(click_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
-        elif event_type in ("hardBounce", "softBounce"):
-            await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
-            if email:
-                await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
-        elif event_type == "unsubscribed":
-            await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
-            if email:
-                await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
+        # Only connect to DB for events we care about
+        if event_type in ("delivered", "opened", "uniqueOpened", "clicked", "uniqueClicked", "hardBounce", "softBounce", "unsubscribed"):
+            db = await get_database_async()
+            
+            if event_type == "delivered":
+                await db.execute("UPDATE email_sends SET status = 'delivered', delivered_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
+            elif event_type in ("opened", "uniqueOpened"):
+                await db.execute("UPDATE email_sends SET status = 'opened', first_opened_at = COALESCE(first_opened_at, $1), open_count = COALESCE(open_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
+                # Update prospect stats
+                if email:
+                    await db.execute("UPDATE marketing_prospects SET total_emails_opened = COALESCE(total_emails_opened, 0) + 1 WHERE email = $1", email)
+            elif event_type in ("clicked", "uniqueClicked"):
+                await db.execute("UPDATE email_sends SET status = 'clicked', first_clicked_at = COALESCE(first_clicked_at, $1), click_count = COALESCE(click_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
+                # Update prospect stats
+                if email:
+                    await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
+            elif event_type in ("hardBounce", "softBounce"):
+                await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
+                if email:
+                    await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
+                    # Stop active sequences for bounced emails
+                    await db.execute("""
+                        UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'bounced', completed_at = NOW()
+                        WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                        AND status IN ('pending', 'active')
+                    """, email)
+            elif event_type == "unsubscribed":
+                await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
+                if email:
+                    await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
+                    # Stop active sequences for unsubscribed
+                    await db.execute("""
+                        UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
+                        WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                        AND status IN ('pending', 'active')
+                    """, email)
         
         return {"status": "processed", "event": event_type}
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.error("Webhook processing error", error=str(e))
+        # Return 200 to prevent Brevo from retrying
+        return {"status": "error", "message": str(e)}
+    finally:
+        if db:
+            await db.close()
 
 
 @app.post("/trigger/youtube-discovery")
