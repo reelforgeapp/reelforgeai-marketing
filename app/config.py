@@ -9,8 +9,6 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
-    
     # Database
     database_url: str = Field(default="postgresql://localhost:5432/reelforge")
     db_pool_min_size: int = Field(default=5)
@@ -41,10 +39,6 @@ class Settings(BaseSettings):
     # Sentry
     sentry_dsn: str = Field(default="")
     
-    # Reditus
-    reditus_api_key: str = Field(default="")
-    reditus_program_id: str = Field(default="")
-    
     # Outreach
     daily_email_limit: int = Field(default=50)
     min_relevance_score: float = Field(default=0.5)
@@ -61,21 +55,9 @@ class Settings(BaseSettings):
     
     # Compliance
     data_retention_days: int = Field(default=180)
-    require_email_verification: bool = Field(default=True)
     
     # Application
     environment: str = Field(default="development")
-    log_level: str = Field(default="INFO")
-    timezone: str = Field(default="America/New_York")
-    
-    # Worker
-    enable_discovery_jobs: bool = Field(default=True)
-    enable_outreach_jobs: bool = Field(default=True)
-    enable_sync_jobs: bool = Field(default=True)
-    
-    # Server
-    webhook_host: str = Field(default="0.0.0.0")
-    webhook_port: int = Field(default=8080)
     admin_api_key: str = Field(default="change-me-in-production")
     
     # Constants
@@ -83,7 +65,6 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
-        env_file_encoding = "utf-8"
         case_sensitive = False
 
 

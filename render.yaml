@@ -1,65 +1,33 @@
-# =============================================================================
-# ReelForge Marketing Engine - Render Blueprint
-# Deploy all services with one click
-# =============================================================================
-
 services:
-  # Main application (FastAPI + Celery Worker + Beat)
   - type: web
     name: reelforge-marketing
     runtime: docker
-    plan: starter  # $7/mo
+    plan: starter
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: reelforge-db
+          name: reelforge-marketing-db
           property: connectionString
       - key: REDIS_URL
         fromService:
-          name: reelforge-redis
           type: redis
+          name: reelforge-redis
           property: connectionString
       - key: YOUTUBE_API_KEY
-        sync: false
-      - key: APIFY_API_TOKEN
         sync: false
       - key: BREVO_API_KEY
         sync: false
       - key: BREVO_SENDER_EMAIL
-        value: jr@reelforgeai.io
+        sync: false
       - key: BREVO_SENDER_NAME
-        value: Jr from ReelForge
-      - key: BREVO_WEBHOOK_SECRET
-        generateValue: true
-      - key: CLEAROUT_API_KEY
         sync: false
-      - key: SENTRY_DSN
-        sync: false
-      - key: REDITUS_API_KEY
-        sync: false
-      - key: REDITUS_PROGRAM_ID
-        sync: false
-      - key: ADMIN_API_KEY
-        generateValue: true
-      - key: ENVIRONMENT
-        value: production
-      - key: LOG_LEVEL
-        value: INFO
-      - key: DAILY_EMAIL_LIMIT
-        value: "50"
-      - key: MIN_RELEVANCE_SCORE
-        value: "0.5"
-      - key: DATA_RETENTION_DAYS
-        value: "180"
 
 databases:
-  # PostgreSQL database
-  - name: reelforge-db
-    plan: starter  # $7/mo
-    databaseName: reelforge
-    user: reelforge
+  - name: reelforge-marketing-db
+    plan: starter
 
-# Redis for Celery
-  # Note: Add Redis manually in Render dashboard
-  # Redis is listed here for reference but requires manual setup
+services:
+  - type: redis
+    name: reelforge-redis
+    plan: starter

@@ -29,7 +29,6 @@ celery_app.conf.update(
     timezone='America/New_York',
     enable_utc=True,
     task_acks_late=True,
-    task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     result_expires=86400,
     task_default_queue='default',
@@ -38,8 +37,6 @@ celery_app.conf.update(
         Queue('discovery', Exchange('discovery'), routing_key='discovery'),
         Queue('outreach', Exchange('outreach'), routing_key='outreach'),
     ),
-    task_default_retry_delay=300,
-    task_max_retries=3,
     beat_schedule={
         'youtube-discovery-daily': {
             'task': 'tasks.discovery_tasks.run_youtube_discovery',
@@ -71,36 +68,13 @@ celery_app.conf.update(
             'schedule': crontab(hour='*/3', minute=0),
             'options': {'queue': 'outreach'}
         },
-        'data-purge-daily': {
-            'task': 'tasks.maintenance_tasks.purge_expired_data',
-            'schedule': crontab(hour=4, minute=0),
-            'options': {'queue': 'default'}
-        },
-        'idempotency-cleanup-daily': {
-            'task': 'tasks.maintenance_tasks.cleanup_idempotency_keys',
-            'schedule': crontab(hour=5, minute=0),
-            'options': {'queue': 'default'}
-        },
     },
 )
 
 
 class BaseTaskWithRetry(celery_app.Task):
-    """Base task with automatic retry on failure."""
-    
     autoretry_for = (Exception,)
     retry_backoff = True
     retry_backoff_max = 3600
     retry_jitter = True
     max_retries = 3
-    
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        try:
-            import sentry_sdk
-            sentry_sdk.capture_exception(exc)
-        except:
-            pass
-        super().on_failure(exc, task_id, args, kwargs, einfo)
-
-
-__all__ = ['celery_app', 'BaseTaskWithRetry']
