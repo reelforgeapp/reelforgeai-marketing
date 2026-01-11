@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Sentry
     sentry_dsn: str = Field(default="")
     
+    # Anthropic (AI Personalization)
+    anthropic_api_key: str = Field(default="")
+    anthropic_model: str = Field(default="claude-3-5-haiku-20241022")
+    
     # Outreach
     daily_email_limit: int = Field(default=50)
     min_relevance_score: float = Field(default=0.5)
@@ -51,7 +55,7 @@ class Settings(BaseSettings):
     
     # Affiliate
     affiliate_signup_base_url: str = Field(default="https://reelforgeai.io/affiliate")
-    default_commission_rate: float = Field(default=0.40)
+    default_commission_rate: float = Field(default=0.30)
     
     # Compliance
     data_retention_days: int = Field(default=180)

@@ -57,6 +57,42 @@ def safe_render_template(template_str: str, data: dict, default: str = "") -> st
         return default
 
 
+async def generate_ai_email(prospect: dict, template_type: str = "initial") -> dict:
+    """Generate AI-personalized email for a prospect."""
+    settings = get_settings()
+    
+    if not settings.anthropic_api_key:
+        return None
+    
+    try:
+        from services.ai_personalization import AIPersonalizationService, YouTubeVideoFetcher
+        
+        ai_service = AIPersonalizationService()
+        video_fetcher = YouTubeVideoFetcher()
+        
+        # Fetch latest video for context
+        video_data = None
+        if prospect.get("youtube_channel_id"):
+            video_data = await video_fetcher.get_latest_video(prospect["youtube_channel_id"])
+        
+        # Generate personalized email
+        result = await ai_service.generate_personalized_email(
+            prospect=prospect,
+            video_data=video_data,
+            template_type=template_type
+        )
+        
+        if result.get("subject") and result.get("body"):
+            logger.info("AI email generated", prospect_id=str(prospect.get("id", "")), template_type=template_type)
+            return result
+        
+        return None
+        
+    except Exception as e:
+        logger.error("AI email generation failed", error=str(e))
+        return None
+
+
 @celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='outreach')
 def process_pending_sequences(self):
     return asyncio.run(_process_sequences_async())
@@ -178,17 +214,23 @@ async def _process_sequences_async() -> dict:
                         results["skipped"] += 1
                         continue
                     
-                    # Render templates safely
-                    subject = safe_render_template(
-                        email_template["subject_template"], 
-                        pdata, 
-                        f"Partnership opportunity for {pdata.get('first_name', 'you')}"
-                    )
-                    html_content = safe_render_template(
-                        email_template["html_template"], 
-                        pdata,
-                        f"<p>Hi {pdata.get('first_name', 'there')},</p><p>We have a partnership opportunity for you.</p>"
-                    )
+                    # Use AI-generated email if available, otherwise use template
+                    if pdata.get("use_ai_email") and current_step == 0 and pdata.get("ai_subject"):
+                        subject = pdata["ai_subject"]
+                        html_content = pdata["ai_body"]
+                        logger.info("Using AI-generated email", sequence_id=str(seq["id"]))
+                    else:
+                        # Render templates safely
+                        subject = safe_render_template(
+                            email_template["subject_template"], 
+                            pdata, 
+                            f"Partnership opportunity for {pdata.get('first_name', 'you')}"
+                        )
+                        html_content = safe_render_template(
+                            email_template["html_template"], 
+                            pdata,
+                            f"<p>Hi {pdata.get('first_name', 'there')},</p><p>We have a partnership opportunity for you.</p>"
+                        )
                     
                     # Edge case: empty rendered content
                     if not subject or not html_content:
@@ -201,7 +243,7 @@ async def _process_sequences_async() -> dict:
                         to_name=seq["full_name"] or "",
                         subject=subject,
                         html_content=html_content,
-                        tags=[f"sequence:{seq['sequence_name']}", f"step:{current_step + 1}"]
+                        tags=[f"sequence:{seq['sequence_name']}", f"step:{current_step + 1}", "ai_personalized" if pdata.get("use_ai_email") else "template"]
                     )
                     
                     if result.get("success"):
@@ -282,14 +324,17 @@ async def _auto_enroll_async() -> dict:
     settings = get_settings()
     db = None
     
-    results = {"enrolled": 0, "skipped": 0, "errors": 0}
+    results = {"enrolled": 0, "skipped": 0, "errors": 0, "ai_generated": 0}
     
     try:
         db = await get_database_async()
         
         prospects = await db.fetch("""
             SELECT mp.id, mp.email, mp.full_name, mp.primary_platform, 
-                   mp.relevance_score, mp.competitor_mentions
+                   mp.relevance_score, mp.competitor_mentions,
+                   mp.youtube_channel_id, mp.youtube_handle, mp.youtube_subscribers,
+                   mp.instagram_handle, mp.instagram_followers,
+                   mp.tiktok_handle, mp.tiktok_followers
             FROM marketing_prospects mp
             WHERE mp.email IS NOT NULL
               AND mp.email_verified = TRUE
@@ -358,6 +403,15 @@ async def _auto_enroll_async() -> dict:
                     "competitor": competitor,
                     "affiliate_link": f"{settings.affiliate_signup_base_url}?ref={str(prospect['id'])[:8]}"
                 }
+                
+                # Try AI-generated personalized email
+                ai_email = await generate_ai_email(dict(prospect), "initial")
+                if ai_email:
+                    pdata["ai_subject"] = ai_email.get("subject", "")
+                    pdata["ai_body"] = ai_email.get("body", "")
+                    pdata["ai_text_body"] = ai_email.get("text_body", "")
+                    pdata["use_ai_email"] = True
+                    results["ai_generated"] += 1
                 
                 await db.execute("""
                     INSERT INTO outreach_sequences (
