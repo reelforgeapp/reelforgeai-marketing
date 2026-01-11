@@ -3,6 +3,7 @@ ReelForge Marketing Engine - Database Connection
 """
 
 import asyncio
+import os
 import asyncpg
 from typing import Optional
 import structlog
@@ -11,51 +12,35 @@ from app.config import get_settings
 
 logger = structlog.get_logger()
 
-_pool: Optional[asyncpg.Pool] = None
-_pool_lock = asyncio.Lock()
-
-
-async def init_database() -> asyncpg.Pool:
-    global _pool
-    
-    if _pool is not None:
-        return _pool
-    
-    async with _pool_lock:
-        if _pool is not None:
-            return _pool
-        
-        settings = get_settings()
-        
-        for attempt in range(3):
-            try:
-                _pool = await asyncpg.create_pool(
-                    settings.database_url,
-                    min_size=settings.db_pool_min_size,
-                    max_size=settings.db_pool_max_size,
-                    command_timeout=60,
-                )
-                logger.info("Database pool initialized", min_size=settings.db_pool_min_size, max_size=settings.db_pool_max_size)
-                return _pool
-            except Exception as e:
-                if attempt < 2:
-                    await asyncio.sleep(2 ** attempt)
-                else:
-                    raise
-
-
-async def close_database():
-    global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
+_pools = {}
 
 
 async def get_database_async() -> asyncpg.Pool:
-    global _pool
-    if _pool is None:
-        await init_database()
-    return _pool
+    """Get or create a database pool for the current process."""
+    pid = os.getpid()
+    
+    if pid not in _pools or _pools[pid] is None:
+        settings = get_settings()
+        _pools[pid] = await asyncpg.create_pool(
+            settings.database_url,
+            min_size=2,
+            max_size=10,
+            command_timeout=60,
+        )
+        logger.info("Database pool initialized", pid=pid)
+    
+    return _pools[pid]
+
+
+async def init_database() -> asyncpg.Pool:
+    return await get_database_async()
+
+
+async def close_database():
+    pid = os.getpid()
+    if pid in _pools and _pools[pid] is not None:
+        await _pools[pid].close()
+        _pools[pid] = None
 
 
 class DatabaseTransaction:
