@@ -117,16 +117,20 @@ class ApifyDiscovery:
         
         bio = item.get('biography') or item.get('owner', {}).get('biography') or ''
         
+        # Extract email from bio
+        email = self._extract_email_from_text(bio)
+        
         await self.db.execute("""
             INSERT INTO marketing_prospects (
-                instagram_handle, full_name, instagram_followers,
+                instagram_handle, full_name, instagram_followers, email,
                 primary_platform, relevance_score, competitor_mentions,
                 raw_data, status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         """,
             username,
             full_name,
             followers,
+            email,
             'instagram',
             0.5,
             [keyword],
@@ -218,16 +222,20 @@ class ApifyDiscovery:
         full_name = author_meta.get('nickName') or author_meta.get('nickname') or ''
         bio = author_meta.get('signature') or ''
         
+        # Extract email from bio
+        email = self._extract_email_from_text(bio)
+        
         await self.db.execute("""
             INSERT INTO marketing_prospects (
-                tiktok_handle, full_name, tiktok_followers,
+                tiktok_handle, full_name, tiktok_followers, email,
                 primary_platform, relevance_score, competitor_mentions,
                 raw_data, status, discovered_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         """,
             username,
             full_name,
             followers,
+            email,
             'tiktok',
             0.5,
             [keyword],
@@ -235,5 +243,25 @@ class ApifyDiscovery:
             'discovered'
         )
         
-        logger.info("TikTok prospect created", username=username, followers=followers)
+        logger.info("TikTok prospect created", username=username, followers=followers, has_email=bool(email))
         return True
+    
+    def _extract_email_from_text(self, text: str) -> str:
+        """Extract email address from text (bio, description, etc.)"""
+        import re
+        if not text:
+            return None
+        
+        # Common email pattern
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        matches = re.findall(email_pattern, text)
+        
+        if matches:
+            # Return first valid-looking email
+            for email in matches:
+                # Skip common fake/placeholder emails
+                lower = email.lower()
+                if not any(skip in lower for skip in ['example.com', 'test.com', 'email.com', 'your@']):
+                    return email.lower()
+        
+        return None
