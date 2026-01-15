@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS marketing_prospects (
     updated_at TIMESTAMP DEFAULT NOW(),
     verified_at TIMESTAMP,
     verification_status VARCHAR(50),
-    nlp_relevance_score FLOAT
+    nlp_relevance_score FLOAT,
+    brevo_synced_at TIMESTAMP
 );
 
 -- Competitor Keywords

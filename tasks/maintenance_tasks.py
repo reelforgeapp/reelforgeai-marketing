@@ -6,6 +6,7 @@ sys.path.insert(0, '/app')
 
 import asyncio
 from datetime import datetime, timedelta
+import httpx
 import structlog
 
 from celery_config import celery_app, BaseTaskWithRetry
@@ -13,6 +14,117 @@ from app.config import get_settings
 from app.database import get_database_async, DatabaseTransaction
 
 logger = structlog.get_logger()
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')
+def sync_contacts_to_brevo(self):
+    return asyncio.run(_sync_brevo_async())
+
+
+async def _sync_brevo_async() -> dict:
+    """Sync verified prospects to Brevo CRM."""
+    settings = get_settings()
+    db = await get_database_async()
+    
+    results = {"synced": 0, "updated": 0, "errors": 0}
+    
+    # Brevo list ID for ReelForge Prospects
+    BREVO_LIST_ID = 3
+    
+    try:
+        # Get verified prospects not yet synced or updated recently
+        prospects = await db.fetch("""
+            SELECT id, email, full_name, primary_platform, 
+                   youtube_handle, youtube_subscribers,
+                   instagram_handle, instagram_followers,
+                   tiktok_handle, tiktok_followers,
+                   status, relevance_score, brevo_synced_at
+            FROM marketing_prospects 
+            WHERE email_verified = TRUE 
+              AND email IS NOT NULL
+              AND (brevo_synced_at IS NULL OR brevo_synced_at < NOW() - INTERVAL '7 days')
+            ORDER BY relevance_score DESC
+            LIMIT 100
+        """)
+        
+        logger.info("Syncing prospects to Brevo", count=len(prospects))
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for p in prospects:
+                try:
+                    # Build contact attributes
+                    full_name = p["full_name"] or ""
+                    name_parts = full_name.split()
+                    first_name = name_parts[0] if name_parts else ""
+                    last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+                    
+                    followers = (
+                        p["youtube_subscribers"] or 
+                        p["instagram_followers"] or 
+                        p["tiktok_followers"] or 0
+                    )
+                    
+                    handle = (
+                        p["youtube_handle"] or 
+                        p["instagram_handle"] or 
+                        p["tiktok_handle"] or ""
+                    )
+                    
+                    contact = {
+                        "email": p["email"],
+                        "attributes": {
+                            "FIRSTNAME": first_name,
+                            "LASTNAME": last_name,
+                            "PLATFORM": p["primary_platform"] or "unknown",
+                            "HANDLE": handle,
+                            "FOLLOWERS": followers,
+                            "STATUS": p["status"] or "discovered",
+                            "RELEVANCE_SCORE": float(p["relevance_score"] or 0)
+                        },
+                        "listIds": [BREVO_LIST_ID],
+                        "updateEnabled": True
+                    }
+                    
+                    resp = await client.post(
+                        "https://api.brevo.com/v3/contacts",
+                        headers={
+                            "api-key": settings.brevo_api_key,
+                            "Content-Type": "application/json"
+                        },
+                        json=contact
+                    )
+                    
+                    if resp.status_code in [200, 201]:
+                        results["synced"] += 1
+                    elif resp.status_code == 204:
+                        results["updated"] += 1
+                    else:
+                        logger.warning("Brevo sync failed", email=p["email"], status=resp.status_code, response=resp.text[:200])
+                        results["errors"] += 1
+                        continue
+                    
+                    # Mark as synced
+                    await db.execute(
+                        "UPDATE marketing_prospects SET brevo_synced_at = NOW() WHERE id = $1",
+                        p["id"]
+                    )
+                    
+                    # Rate limit
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logger.error("Brevo contact sync error", email=p["email"], error=str(e))
+                    results["errors"] += 1
+        
+        logger.info("Brevo sync complete", **results)
+        
+    except Exception as e:
+        logger.error("Brevo sync failed", error=str(e))
+        results["error"] = str(e)
+    finally:
+        await db.close()
+    
+    return results
 
 
 @celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')

@@ -223,6 +223,13 @@ async def trigger_auto_enroll():
     return {"status": "triggered", "task_id": task.id}
 
 
+@app.post("/trigger/brevo-sync")
+async def trigger_brevo_sync():
+    from tasks.maintenance_tasks import sync_contacts_to_brevo
+    task = sync_contacts_to_brevo.delay()
+    return {"status": "triggered", "task_id": task.id}
+
+
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
     from celery.result import AsyncResult

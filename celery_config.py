@@ -68,6 +68,11 @@ celery_app.conf.update(
             'schedule': crontab(hour='*/3', minute=0),
             'options': {'queue': 'outreach'}
         },
+        'brevo-sync-daily': {
+            'task': 'tasks.maintenance_tasks.sync_contacts_to_brevo',
+            'schedule': crontab(hour=6, minute=0),  # Daily at 6 AM UTC
+            'options': {'queue': 'default'}
+        },
     },
 )
 
