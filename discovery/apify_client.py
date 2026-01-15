@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class ApifyDiscovery:
     # Use hashtag/search scrapers instead of profile scrapers
     INSTAGRAM_HASHTAG_ACTOR = "apify/instagram-hashtag-scraper"
-    INSTAGRAM_SEARCH_ACTOR = "apify/instagram-scraper"
+    INSTAGRAM_PROFILE_ACTOR = "apify/instagram-profile-scraper"
     TIKTOK_SCRAPER_ACTOR = "clockworks/tiktok-scraper"
     
     def __init__(self, api_token: str, db):
@@ -39,6 +39,9 @@ class ApifyDiscovery:
                     {"keyword": "contentcreator"}
                 ]
             
+            all_usernames = set()
+            
+            # Step 1: Collect usernames from hashtag posts
             for kw in keywords:
                 try:
                     hashtag = kw['keyword'].replace('#', '').replace(' ', '')
@@ -59,11 +62,47 @@ class ApifyDiscovery:
                         lambda r=run: list(self.client.dataset(r["defaultDatasetId"]).iterate_items())
                     )
                     
-                    logger.info("Instagram search results", hashtag=hashtag, count=len(items))
+                    logger.info("Instagram hashtag results", hashtag=hashtag, count=len(items))
                     
+                    # Extract usernames from posts
                     for item in items:
+                        username = item.get('ownerUsername')
+                        if username:
+                            # Check if already exists in DB
+                            existing = await self.db.fetchval(
+                                "SELECT id FROM marketing_prospects WHERE instagram_handle = $1",
+                                username
+                            )
+                            if not existing:
+                                all_usernames.add(username)
+                                
+                except Exception as e:
+                    logger.error("Instagram hashtag search failed", keyword=kw['keyword'], error=str(e))
+                    results["errors"] += 1
+            
+            logger.info("Unique Instagram usernames to scrape", count=len(all_usernames))
+            
+            # Step 2: Scrape profiles for bios/emails (batch of 20 at a time)
+            usernames_list = list(all_usernames)[:100]  # Limit to 100 profiles
+            
+            for i in range(0, len(usernames_list), 20):
+                batch = usernames_list[i:i+20]
+                try:
+                    logger.info("Scraping Instagram profiles", batch_size=len(batch), batch_num=i//20+1)
+                    
+                    run = await asyncio.to_thread(
+                        lambda b=batch: self.client.actor(self.INSTAGRAM_PROFILE_ACTOR).call(run_input={
+                            "usernames": b
+                        })
+                    )
+                    
+                    profiles = await asyncio.to_thread(
+                        lambda r=run: list(self.client.dataset(r["defaultDatasetId"]).iterate_items())
+                    )
+                    
+                    for profile in profiles:
                         try:
-                            created = await self._process_instagram_profile(item, kw['keyword'])
+                            created = await self._process_instagram_profile_data(profile)
                             if created:
                                 results["prospects_created"] += 1
                             results["profiles_found"] += 1
@@ -72,7 +111,7 @@ class ApifyDiscovery:
                             results["errors"] += 1
                             
                 except Exception as e:
-                    logger.error("Instagram search failed", keyword=kw['keyword'], error=str(e))
+                    logger.error("Instagram profile scrape failed", error=str(e))
                     results["errors"] += 1
                     
         except Exception as e:
@@ -81,6 +120,55 @@ class ApifyDiscovery:
         
         logger.info("Instagram discovery complete", **results)
         return results
+    
+    async def _process_instagram_profile_data(self, profile: dict) -> bool:
+        """Process full Instagram profile data with bio and email."""
+        username = profile.get('username')
+        if not username:
+            return False
+        
+        existing = await self.db.fetchval(
+            "SELECT id FROM marketing_prospects WHERE instagram_handle = $1",
+            username
+        )
+        if existing:
+            return False
+        
+        followers = profile.get('followersCount') or 0
+        
+        if followers < self.settings.min_instagram_followers:
+            return False
+        
+        full_name = profile.get('fullName') or ''
+        bio = profile.get('biography') or ''
+        
+        # Get email from profile fields or extract from bio
+        email = (
+            profile.get('businessEmail') or 
+            profile.get('publicEmail') or 
+            self._extract_email_from_text(bio)
+        )
+        
+        await self.db.execute("""
+            INSERT INTO marketing_prospects (
+                instagram_handle, full_name, instagram_followers, email,
+                primary_platform, relevance_score, competitor_mentions,
+                raw_data, status, discovered_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        """,
+            username,
+            full_name,
+            followers,
+            email,
+            'instagram',
+            0.5,
+            ['instagram'],
+            '{}',
+            'discovered'
+        )
+        
+        logger.info("Instagram prospect created", username=username, followers=followers, has_email=bool(email))
+        return True
     
     async def _process_instagram_profile(self, item: dict, keyword: str) -> bool:
         # Handle different response formats
