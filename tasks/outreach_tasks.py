@@ -131,6 +131,7 @@ async def _process_sequences_async() -> dict:
             
             remaining = settings.daily_email_limit - current_count
             
+            # Fetch sequences that are ready to send AND don't already have an email sent for this step
             pending = await db.fetch("""
                 SELECT os.id, os.prospect_id, os.sequence_name, os.current_step,
                        os.total_steps, os.personalization_data,
@@ -144,6 +145,12 @@ async def _process_sequences_async() -> dict:
                   AND mp.email IS NOT NULL
                   AND mp.email_verified = TRUE
                   AND mp.status NOT IN ('unsubscribed', 'bounced')
+                  -- Prevent duplicate sends: skip if email already sent for this sequence + step
+                  AND NOT EXISTS (
+                      SELECT 1 FROM email_sends es
+                      WHERE es.sequence_id = os.id
+                        AND es.step_number = os.current_step + 1
+                  )
                 ORDER BY os.next_send_at ASC
                 LIMIT $1
             """, remaining)
@@ -237,7 +244,18 @@ async def _process_sequences_async() -> dict:
                         logger.warning("Empty rendered content", sequence_id=str(seq["id"]))
                         results["skipped"] += 1
                         continue
-                    
+
+                    # Double-check for duplicates right before sending (race condition protection)
+                    existing_send = await db.fetchval("""
+                        SELECT id FROM email_sends
+                        WHERE sequence_id = $1 AND step_number = $2
+                    """, seq["id"], current_step + 1)
+
+                    if existing_send:
+                        logger.warning("Duplicate email prevented", sequence_id=str(seq["id"]), step=current_step + 1)
+                        results["skipped"] += 1
+                        continue
+
                     result = await brevo.send_email(
                         to_email=to_email,
                         to_name=seq["full_name"] or "",

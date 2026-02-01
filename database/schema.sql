@@ -166,6 +166,9 @@ CREATE INDEX IF NOT EXISTS idx_sequences_next_send ON outreach_sequences(next_se
 CREATE INDEX IF NOT EXISTS idx_sends_message_id ON email_sends(brevo_message_id);
 CREATE INDEX IF NOT EXISTS idx_keywords_platform ON competitor_keywords(platform, is_active);
 
+-- Unique constraint to prevent duplicate emails for the same sequence step
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sends_sequence_step_unique ON email_sends(sequence_id, step_number);
+
 -- =====================================================
 -- SEED DATA - Competitor Keywords for YouTube Discovery
 -- =====================================================

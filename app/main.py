@@ -113,62 +113,91 @@ async def get_status():
 
 @app.post("/webhooks/brevo")
 async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_webhook)):
-    """Handle Brevo webhook events with minimal DB connections."""
+    """Handle Brevo webhook events with minimal DB connections and deduplication."""
     db = None
     try:
         payload = json.loads(body)
-        
+
         event_type = payload.get("event")
         message_id = payload.get("message-id")
         email = payload.get("email")
-        
+
         # Skip if no message_id to update
         if not message_id:
             return {"status": "skipped", "reason": "no message_id"}
-        
+
         timestamp_str = payload.get("date") or payload.get("ts_event")
         try:
             timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')) if timestamp_str else datetime.utcnow()
         except:
             timestamp = datetime.utcnow()
-        
+
         # Only connect to DB for events we care about
         if event_type in ("delivered", "opened", "uniqueOpened", "clicked", "uniqueClicked", "hardBounce", "softBounce", "unsubscribed"):
             db = await get_database_async()
-            
+
             if event_type == "delivered":
                 await db.execute("UPDATE email_sends SET status = 'delivered', delivered_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
             elif event_type in ("opened", "uniqueOpened"):
-                await db.execute("UPDATE email_sends SET status = 'opened', first_opened_at = COALESCE(first_opened_at, $1), open_count = COALESCE(open_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
-                # Update prospect stats
-                if email:
-                    await db.execute("UPDATE marketing_prospects SET total_emails_opened = COALESCE(total_emails_opened, 0) + 1 WHERE email = $1", email)
+                # Only increment counters if this is the first open (first_opened_at is NULL)
+                # This prevents duplicate webhook deliveries from inflating metrics
+                result = await db.execute("""
+                    UPDATE email_sends
+                    SET status = 'opened',
+                        first_opened_at = COALESCE(first_opened_at, $1),
+                        open_count = CASE WHEN first_opened_at IS NULL THEN 1 ELSE open_count END
+                    WHERE brevo_message_id = $2
+                """, timestamp, message_id)
+                # Only update prospect stats if this was the first open
+                if email and result and "UPDATE 1" in str(result):
+                    was_first_open = await db.fetchval("""
+                        SELECT first_opened_at = $1 FROM email_sends WHERE brevo_message_id = $2
+                    """, timestamp, message_id)
+                    if was_first_open:
+                        await db.execute("UPDATE marketing_prospects SET total_emails_opened = COALESCE(total_emails_opened, 0) + 1 WHERE email = $1", email)
             elif event_type in ("clicked", "uniqueClicked"):
-                await db.execute("UPDATE email_sends SET status = 'clicked', first_clicked_at = COALESCE(first_clicked_at, $1), click_count = COALESCE(click_count, 0) + 1 WHERE brevo_message_id = $2", timestamp, message_id)
-                # Update prospect stats
-                if email:
-                    await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
+                # Only increment counters if this is the first click (first_clicked_at is NULL)
+                result = await db.execute("""
+                    UPDATE email_sends
+                    SET status = 'clicked',
+                        first_clicked_at = COALESCE(first_clicked_at, $1),
+                        click_count = CASE WHEN first_clicked_at IS NULL THEN 1 ELSE click_count END
+                    WHERE brevo_message_id = $2
+                """, timestamp, message_id)
+                # Only update prospect stats if this was the first click
+                if email and result and "UPDATE 1" in str(result):
+                    was_first_click = await db.fetchval("""
+                        SELECT first_clicked_at = $1 FROM email_sends WHERE brevo_message_id = $2
+                    """, timestamp, message_id)
+                    if was_first_click:
+                        await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
             elif event_type in ("hardBounce", "softBounce"):
-                await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
-                if email:
-                    await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
-                    # Stop active sequences for bounced emails
-                    await db.execute("""
-                        UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'bounced', completed_at = NOW()
-                        WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
-                        AND status IN ('pending', 'active')
-                    """, email)
+                # Only process bounce if not already bounced
+                already_bounced = await db.fetchval("SELECT bounced_at IS NOT NULL FROM email_sends WHERE brevo_message_id = $1", message_id)
+                if not already_bounced:
+                    await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
+                    if email:
+                        await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
+                        # Stop active sequences for bounced emails
+                        await db.execute("""
+                            UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'bounced', completed_at = NOW()
+                            WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                            AND status IN ('pending', 'active')
+                        """, email)
             elif event_type == "unsubscribed":
-                await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
-                if email:
-                    await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
-                    # Stop active sequences for unsubscribed
-                    await db.execute("""
-                        UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
-                        WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
-                        AND status IN ('pending', 'active')
-                    """, email)
-        
+                # Only process unsubscribe if not already processed
+                current_status = await db.fetchval("SELECT status FROM email_sends WHERE brevo_message_id = $1", message_id)
+                if current_status != 'unsubscribed':
+                    await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
+                    if email:
+                        await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
+                        # Stop active sequences for unsubscribed
+                        await db.execute("""
+                            UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
+                            WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                            AND status IN ('pending', 'active')
+                        """, email)
+
         return {"status": "processed", "event": event_type}
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
