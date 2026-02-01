@@ -259,6 +259,14 @@ async def trigger_brevo_sync():
     return {"status": "triggered", "task_id": task.id}
 
 
+@app.post("/trigger/brevo-sync-full")
+async def trigger_brevo_sync_full():
+    """Force sync ALL verified prospects to Brevo, ignoring last sync time."""
+    from tasks.maintenance_tasks import sync_contacts_to_brevo
+    task = sync_contacts_to_brevo.delay(force_full_sync=True)
+    return {"status": "triggered", "task_id": task.id, "mode": "force_full_sync"}
+
+
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
     from celery.result import AsyncResult

@@ -17,16 +17,20 @@ logger = structlog.get_logger()
 
 
 @celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')
-def sync_contacts_to_brevo(self):
-    return asyncio.run(_sync_brevo_async())
+def sync_contacts_to_brevo(self, force_full_sync: bool = False):
+    return asyncio.run(_sync_brevo_async(force_full_sync=force_full_sync))
 
 
-async def _sync_brevo_async() -> dict:
-    """Sync verified prospects to Brevo CRM."""
+async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
+    """Sync verified prospects to Brevo CRM.
+
+    Args:
+        force_full_sync: If True, sync ALL verified prospects regardless of brevo_synced_at
+    """
     settings = get_settings()
     db = await get_database_async()
 
-    results = {"synced": 0, "updated": 0, "errors": 0, "skipped": 0}
+    results = {"synced": 0, "updated": 0, "errors": 0, "skipped": 0, "force_sync": force_full_sync}
 
     if not settings.brevo_api_key:
         logger.warning("Brevo API key not configured, skipping sync")
@@ -36,30 +40,49 @@ async def _sync_brevo_async() -> dict:
     BREVO_LIST_ID = 3
 
     try:
-        # Get verified prospects that need syncing:
-        # 1. Never synced (brevo_synced_at IS NULL)
-        # 2. Status changed since last sync (updated_at > brevo_synced_at)
-        # 3. Not synced in last 7 days (for periodic refresh)
-        prospects = await db.fetch("""
-            SELECT id, email, full_name, primary_platform,
-                   youtube_handle, youtube_subscribers,
-                   instagram_handle, instagram_followers,
-                   tiktok_handle, tiktok_followers,
-                   status, relevance_score, brevo_synced_at, updated_at
-            FROM marketing_prospects
-            WHERE email_verified = TRUE
-              AND email IS NOT NULL
-              AND status NOT IN ('bounced', 'unsubscribed')
-              AND (
-                  brevo_synced_at IS NULL
-                  OR updated_at > brevo_synced_at
-                  OR brevo_synced_at < NOW() - INTERVAL '7 days'
-              )
-            ORDER BY
-                CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
-                relevance_score DESC
-            LIMIT 100
-        """)
+        if force_full_sync:
+            # Force sync: get ALL verified prospects (no time filter)
+            logger.info("Starting FORCED full sync to Brevo")
+            prospects = await db.fetch("""
+                SELECT id, email, full_name, primary_platform,
+                       youtube_handle, youtube_subscribers,
+                       instagram_handle, instagram_followers,
+                       tiktok_handle, tiktok_followers,
+                       status, relevance_score, brevo_synced_at, updated_at
+                FROM marketing_prospects
+                WHERE email_verified = TRUE
+                  AND email IS NOT NULL
+                  AND status NOT IN ('bounced', 'unsubscribed')
+                ORDER BY
+                    CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
+                    relevance_score DESC
+                LIMIT 500
+            """)
+        else:
+            # Normal sync: only prospects that need syncing
+            # 1. Never synced (brevo_synced_at IS NULL)
+            # 2. Status changed since last sync (updated_at > brevo_synced_at)
+            # 3. Not synced in last 7 days (for periodic refresh)
+            prospects = await db.fetch("""
+                SELECT id, email, full_name, primary_platform,
+                       youtube_handle, youtube_subscribers,
+                       instagram_handle, instagram_followers,
+                       tiktok_handle, tiktok_followers,
+                       status, relevance_score, brevo_synced_at, updated_at
+                FROM marketing_prospects
+                WHERE email_verified = TRUE
+                  AND email IS NOT NULL
+                  AND status NOT IN ('bounced', 'unsubscribed')
+                  AND (
+                      brevo_synced_at IS NULL
+                      OR updated_at > brevo_synced_at
+                      OR brevo_synced_at < NOW() - INTERVAL '7 days'
+                  )
+                ORDER BY
+                    CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
+                    relevance_score DESC
+                LIMIT 100
+            """)
         
         if not prospects:
             logger.info("No prospects to sync to Brevo")
