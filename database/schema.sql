@@ -249,11 +249,13 @@ VALUES (
 <p>I''m Larry Barksdale from ReelForge AI, where we empower creators like you to produce stunning videos in minutes—saving hours of editing time so you can focus on what you love.</p>
 <p>We''ve handpicked a select group of top creators for our affiliate program, offering <strong>30% lifetime recurring commissions</strong> on every referral. Imagine earning passive income month after month from your authentic recommendations—many partners are already seeing $1,000+ monthly without extra work.</p>
 <p>What if this could add a reliable revenue stream to your channel? Reply to chat more—I''d love to share how others are succeeding.</p>
+<p><strong>Learn more about our affiliate program:</strong> <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
+<p><strong>Try ReelForge AI for free:</strong> <a href="https://reelforgeai.io">https://reelforgeai.io</a></p>
 <p>Best,<br>Larry Barksdale<br>ReelForge AI</p>',
-    'Hi {{first_name}}, I just watched your video on {{competitor}} and was genuinely impressed. I am Larry Barksdale from ReelForge AI. We offer 30% lifetime recurring commissions. Reply to chat more! -Larry',
+    'Hi {{first_name}}, I just watched your video on {{competitor}} and was genuinely impressed. I am Larry Barksdale from ReelForge AI. We offer 30% lifetime recurring commissions. Learn more: https://www.reelforgeai.io/become-affiliate | Try free: https://reelforgeai.io -Larry',
     TRUE
-) ON CONFLICT (name) DO UPDATE SET 
-    html_template = EXCLUDED.html_template, 
+) ON CONFLICT (name) DO UPDATE SET
+    html_template = EXCLUDED.html_template,
     subject_template = EXCLUDED.subject_template,
     text_template = EXCLUDED.text_template;
 
@@ -306,12 +308,15 @@ VALUES (
 <p>I''ve been following your TikTok content and love your take on AI tools!</p>
 <p>I''m Larry Barksdale from ReelForge AI. We''re offering select creators <strong>30% lifetime commissions</strong> on referrals.</p>
 <p>Interested in learning more?</p>
+<p><strong>Learn more about our affiliate program:</strong> <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
+<p><strong>Try ReelForge AI for free:</strong> <a href="https://reelforgeai.io">https://reelforgeai.io</a></p>
 <p>Best,<br>Larry Barksdale<br>ReelForge AI</p>',
-    'Hi {{first_name}}, Love your TikTok content! I am Larry from ReelForge AI offering 30% lifetime commissions. Interested? -Larry',
+    'Hi {{first_name}}, Love your TikTok content! I am Larry from ReelForge AI offering 30% lifetime commissions. Learn more: https://www.reelforgeai.io/become-affiliate | Try free: https://reelforgeai.io -Larry',
     TRUE
-) ON CONFLICT (name) DO UPDATE SET 
-    html_template = EXCLUDED.html_template, 
-    subject_template = EXCLUDED.subject_template;
+) ON CONFLICT (name) DO UPDATE SET
+    html_template = EXCLUDED.html_template,
+    subject_template = EXCLUDED.subject_template,
+    text_template = EXCLUDED.text_template;
 
 INSERT INTO email_templates (name, subject_template, html_template, text_template, is_active)
 VALUES (
@@ -335,12 +340,15 @@ VALUES (
 <p>I''ve been enjoying your Instagram content about AI and creative tools!</p>
 <p>I''m Larry Barksdale from ReelForge AI. We''re offering <strong>30% lifetime commissions</strong> to creators like you.</p>
 <p>Want to learn more?</p>
+<p><strong>Learn more about our affiliate program:</strong> <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
+<p><strong>Try ReelForge AI for free:</strong> <a href="https://reelforgeai.io">https://reelforgeai.io</a></p>
 <p>Best,<br>Larry Barksdale<br>ReelForge AI</p>',
-    'Hi {{first_name}}, Love your Instagram content! I am Larry from ReelForge AI offering 30% lifetime commissions. Interested? -Larry',
+    'Hi {{first_name}}, Love your Instagram content! I am Larry from ReelForge AI offering 30% lifetime commissions. Learn more: https://www.reelforgeai.io/become-affiliate | Try free: https://reelforgeai.io -Larry',
     TRUE
-) ON CONFLICT (name) DO UPDATE SET 
-    html_template = EXCLUDED.html_template, 
-    subject_template = EXCLUDED.subject_template;
+) ON CONFLICT (name) DO UPDATE SET
+    html_template = EXCLUDED.html_template,
+    subject_template = EXCLUDED.subject_template,
+    text_template = EXCLUDED.text_template;
 
 INSERT INTO email_templates (name, subject_template, html_template, text_template, is_active)
 VALUES (
