@@ -155,6 +155,10 @@ RULES:
 - No excessive formatting or bullet points in the email body
 - Personalize based on their specific content/niche if possible
 - Sign off as "Larry Barksdale" (not "Larry Barksdale, ReelForge AI" - just the name)
+- CRITICAL: The commission rate is EXACTLY 30% - never mention any other percentage (not 40%, not 25%, etc.)
+- Include these links in initial emails:
+  - Affiliate info: https://www.reelforgeai.io/become-affiliate
+  - Free signup: https://reelforgeai.io
 
 OUTPUT FORMAT (exactly like this):
 SUBJECT: [your subject line here]
@@ -208,8 +212,10 @@ Write the email now:"""
 <p>I'm Larry Barksdale from ReelForge AI, where we empower creators like you to produce stunning videos in minutes—saving hours of editing time so you can focus on what you love.</p>
 <p>We've handpicked a select group of top creators for our affiliate program, offering <strong>30% lifetime recurring commissions</strong> on every referral. Imagine earning passive income month after month from your authentic recommendations—many partners are already seeing $1,000+ monthly without extra work.</p>
 <p>What if this could add a reliable revenue stream to your channel? Reply to chat more—I'd love to share how others are succeeding.</p>
+<p><strong>Learn more about our affiliate program:</strong> <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
+<p><strong>Try ReelForge AI for free:</strong> <a href="https://reelforgeai.io">https://reelforgeai.io</a></p>
 <p>Best,<br>Larry Barksdale</p>""",
-                "text_body": f"Hi {first_name}, I just watched your video on {competitor} and was genuinely impressed. I'm Larry Barksdale from ReelForge AI. We offer 30% lifetime recurring commissions. Reply to chat more! -Larry"
+                "text_body": f"Hi {first_name}, I just watched your video on {competitor} and was genuinely impressed. I'm Larry Barksdale from ReelForge AI. We offer 30% lifetime recurring commissions. Learn more: https://www.reelforgeai.io/become-affiliate | Try free: https://reelforgeai.io -Larry"
             }
         elif template_type == "followup_1":
             return {
