@@ -25,28 +25,46 @@ async def _sync_brevo_async() -> dict:
     """Sync verified prospects to Brevo CRM."""
     settings = get_settings()
     db = await get_database_async()
-    
-    results = {"synced": 0, "updated": 0, "errors": 0}
-    
+
+    results = {"synced": 0, "updated": 0, "errors": 0, "skipped": 0}
+
+    if not settings.brevo_api_key:
+        logger.warning("Brevo API key not configured, skipping sync")
+        return {"status": "skipped", "reason": "No Brevo API key"}
+
     # Brevo list ID for ReelForge Prospects
     BREVO_LIST_ID = 3
-    
+
     try:
-        # Get verified prospects not yet synced or updated recently
+        # Get verified prospects that need syncing:
+        # 1. Never synced (brevo_synced_at IS NULL)
+        # 2. Status changed since last sync (updated_at > brevo_synced_at)
+        # 3. Not synced in last 7 days (for periodic refresh)
         prospects = await db.fetch("""
-            SELECT id, email, full_name, primary_platform, 
+            SELECT id, email, full_name, primary_platform,
                    youtube_handle, youtube_subscribers,
                    instagram_handle, instagram_followers,
                    tiktok_handle, tiktok_followers,
-                   status, relevance_score, brevo_synced_at
-            FROM marketing_prospects 
-            WHERE email_verified = TRUE 
+                   status, relevance_score, brevo_synced_at, updated_at
+            FROM marketing_prospects
+            WHERE email_verified = TRUE
               AND email IS NOT NULL
-              AND (brevo_synced_at IS NULL OR brevo_synced_at < NOW() - INTERVAL '7 days')
-            ORDER BY relevance_score DESC
+              AND status NOT IN ('bounced', 'unsubscribed')
+              AND (
+                  brevo_synced_at IS NULL
+                  OR updated_at > brevo_synced_at
+                  OR brevo_synced_at < NOW() - INTERVAL '7 days'
+              )
+            ORDER BY
+                CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
+                relevance_score DESC
             LIMIT 100
         """)
         
+        if not prospects:
+            logger.info("No prospects to sync to Brevo")
+            return {"status": "no_prospects", "synced": 0, "updated": 0, "errors": 0}
+
         logger.info("Syncing prospects to Brevo", count=len(prospects))
         
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -93,19 +111,40 @@ async def _sync_brevo_async() -> dict:
                         },
                         json=contact
                     )
-                    
-                    if resp.status_code in [200, 201]:
+
+                    # Brevo returns:
+                    # 201 = new contact created
+                    # 204 = contact updated (when updateEnabled=True and contact exists)
+                    # 400 = bad request (invalid email format, etc.)
+                    # 401 = unauthorized (bad API key)
+                    if resp.status_code == 201:
                         results["synced"] += 1
+                        logger.debug("Brevo contact created", email=p["email"])
                     elif resp.status_code == 204:
                         results["updated"] += 1
+                        logger.debug("Brevo contact updated", email=p["email"])
+                    elif resp.status_code == 400:
+                        # Check if it's a duplicate error (contact already exists without updateEnabled working)
+                        error_msg = resp.text
+                        if "duplicate" in error_msg.lower() or "already exist" in error_msg.lower():
+                            results["updated"] += 1
+                            logger.debug("Brevo contact already exists", email=p["email"])
+                        else:
+                            logger.warning("Brevo sync bad request", email=p["email"], status=resp.status_code, response=error_msg[:200])
+                            results["errors"] += 1
+                            continue
+                    elif resp.status_code == 401:
+                        logger.error("Brevo API key invalid or expired")
+                        results["errors"] += 1
+                        break  # Stop processing if auth fails
                     else:
                         logger.warning("Brevo sync failed", email=p["email"], status=resp.status_code, response=resp.text[:200])
                         results["errors"] += 1
                         continue
-                    
+
                     # Mark as synced
                     await db.execute(
-                        "UPDATE marketing_prospects SET brevo_synced_at = NOW() WHERE id = $1",
+                        "UPDATE marketing_prospects SET brevo_synced_at = NOW(), updated_at = NOW() WHERE id = $1",
                         p["id"]
                     )
                     
