@@ -41,7 +41,8 @@ async def _youtube_discovery_async() -> dict:
         discovery = YouTubeDiscovery(api_key=settings.youtube_api_key, db=db)
 
         keywords = await db.fetch(
-            "SELECT keyword FROM competitor_keywords WHERE platform = 'youtube' AND is_active = TRUE LIMIT 10"
+            "SELECT keyword FROM competitor_keywords WHERE platform = 'youtube' AND is_active = TRUE LIMIT $1",
+            settings.discovery_keywords_limit
         )
 
         if not keywords:
@@ -49,7 +50,7 @@ async def _youtube_discovery_async() -> dict:
 
         for kw in keywords:
             try:
-                kw_results = await discovery.search_and_store(keyword=kw['keyword'], max_results=50)
+                kw_results = await discovery.search_and_store(keyword=kw['keyword'], max_results=settings.discovery_videos_per_keyword)
                 results["videos_searched"] += kw_results.get("videos_searched", 0)
                 results["channels_found"] += kw_results.get("channels_found", 0)
                 results["prospects_created"] += kw_results.get("prospects_created", 0)

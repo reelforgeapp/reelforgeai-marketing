@@ -367,8 +367,8 @@ async def _auto_enroll_async() -> dict:
                   WHERE os.prospect_id = mp.id AND os.status IN ('pending', 'active', 'completed')
               )
             ORDER BY mp.relevance_score DESC
-            LIMIT 25
-        """, settings.min_relevance_score)
+            LIMIT $2
+        """, settings.min_relevance_score, settings.auto_enrollment_limit)
         
         for prospect in prospects:
             try:

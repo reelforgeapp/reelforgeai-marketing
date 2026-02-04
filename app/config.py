@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     bounce_rate_threshold: float = Field(default=0.02)  # 2% - alert if exceeded
     spam_rate_threshold: float = Field(default=0.001)  # 0.1% - alert if exceeded
 
+    # Pipeline Limits (per task run)
+    email_extraction_limit: int = Field(default=75)  # 4 runs/day = 300/day capacity
+    email_verification_limit: int = Field(default=100)  # 4 runs/day = 400/day capacity
+    auto_enrollment_limit: int = Field(default=50)  # 8 runs/day = 400/day capacity
+    discovery_keywords_limit: int = Field(default=10)
+    discovery_videos_per_keyword: int = Field(default=50)
+
     # Application
     environment: str = Field(default="development")
     admin_api_key: str = Field(default="change-me-in-production")

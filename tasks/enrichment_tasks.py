@@ -20,6 +20,7 @@ def run_email_extraction(self):
 
 
 async def _email_extraction_async() -> dict:
+    settings = get_settings()
     results = {
         "processed": 0,
         "emails_found": 0,
@@ -32,7 +33,7 @@ async def _email_extraction_async() -> dict:
         from discovery.hybrid_email_extractor import HybridEmailExtractor
 
         extractor = HybridEmailExtractor()
-        extraction_results = await extractor.extract_for_prospects(limit=30, only_missing=True)
+        extraction_results = await extractor.extract_for_prospects(limit=settings.email_extraction_limit, only_missing=True)
         results.update(extraction_results)
 
         logger.info("Email extraction complete", **results)
@@ -71,7 +72,7 @@ async def _email_verification_async() -> dict:
         from services.email_verification import get_verification_client
         
         client = get_verification_client()
-        verification_results = await client.verify_batch(limit=100, only_unverified=True)
+        verification_results = await client.verify_batch(limit=settings.email_verification_limit, only_unverified=True)
         results.update(verification_results)
         
         logger.info("Email verification complete", **results)
