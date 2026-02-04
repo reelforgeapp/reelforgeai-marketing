@@ -269,3 +269,149 @@ async def get_task_status(task_id: str):
     from celery_config import celery_app
     result = AsyncResult(task_id, app=celery_app)
     return {"task_id": task_id, "status": result.status, "result": result.result if result.ready() else None}
+
+
+# =====================================================
+# Keyword Management API
+# =====================================================
+
+@app.get("/keywords")
+async def list_keywords():
+    """List all discovery keywords with stats."""
+    db = None
+    try:
+        db = await get_database_async()
+        keywords = await db.fetch("""
+            SELECT id, competitor_name, keyword, platform, is_active,
+                   last_searched_at, results_count, priority, created_at
+            FROM competitor_keywords
+            ORDER BY priority DESC, is_active DESC, competitor_name, keyword
+        """)
+        return {
+            "keywords": [dict(k) for k in keywords],
+            "total": len(keywords),
+            "active": sum(1 for k in keywords if k["is_active"])
+        }
+    except Exception as e:
+        logger.error("Failed to list keywords", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if db:
+            await db.close()
+
+
+@app.post("/keywords")
+async def add_keyword(request: Request):
+    """Add a new discovery keyword."""
+    db = None
+    try:
+        data = await request.json()
+        keyword = data.get("keyword", "").strip()
+        competitor_name = data.get("competitor_name", "General").strip()
+        platform = data.get("platform", "youtube")
+        priority = data.get("priority", 0)
+
+        if not keyword:
+            raise HTTPException(status_code=400, detail="Keyword is required")
+
+        db = await get_database_async()
+
+        # Check for duplicate
+        existing = await db.fetchval(
+            "SELECT id FROM competitor_keywords WHERE keyword = $1 AND platform = $2",
+            keyword, platform
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Keyword already exists")
+
+        result = await db.fetchrow("""
+            INSERT INTO competitor_keywords (competitor_name, keyword, platform, priority, is_active)
+            VALUES ($1, $2, $3, $4, TRUE)
+            RETURNING id, competitor_name, keyword, platform, is_active, priority
+        """, competitor_name, keyword, platform, priority)
+
+        logger.info("Keyword added", keyword=keyword, competitor=competitor_name)
+        return {"status": "created", "keyword": dict(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to add keyword", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if db:
+            await db.close()
+
+
+@app.patch("/keywords/{keyword_id}")
+async def update_keyword(keyword_id: str, request: Request):
+    """Update a keyword (toggle active, change priority, etc.)."""
+    db = None
+    try:
+        data = await request.json()
+        db = await get_database_async()
+
+        # Build dynamic update
+        updates = []
+        params = []
+        param_idx = 1
+
+        if "is_active" in data:
+            updates.append(f"is_active = ${param_idx}")
+            params.append(data["is_active"])
+            param_idx += 1
+
+        if "priority" in data:
+            updates.append(f"priority = ${param_idx}")
+            params.append(data["priority"])
+            param_idx += 1
+
+        if "competitor_name" in data:
+            updates.append(f"competitor_name = ${param_idx}")
+            params.append(data["competitor_name"])
+            param_idx += 1
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.append(keyword_id)
+        query = f"UPDATE competitor_keywords SET {', '.join(updates)} WHERE id = ${param_idx} RETURNING *"
+
+        result = await db.fetchrow(query, *params)
+        if not result:
+            raise HTTPException(status_code=404, detail="Keyword not found")
+
+        logger.info("Keyword updated", keyword_id=keyword_id)
+        return {"status": "updated", "keyword": dict(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update keyword", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if db:
+            await db.close()
+
+
+@app.delete("/keywords/{keyword_id}")
+async def delete_keyword(keyword_id: str):
+    """Delete a keyword."""
+    db = None
+    try:
+        db = await get_database_async()
+        result = await db.execute(
+            "DELETE FROM competitor_keywords WHERE id = $1",
+            keyword_id
+        )
+        if result == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Keyword not found")
+
+        logger.info("Keyword deleted", keyword_id=keyword_id)
+        return {"status": "deleted", "keyword_id": keyword_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to delete keyword", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if db:
+            await db.close()

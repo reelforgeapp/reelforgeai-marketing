@@ -301,9 +301,17 @@ class YouTubeVideoFetcher:
     def _extract_topics(self, text: str) -> str:
         """Extract likely topics from video text."""
         keywords = [
+            # Core topics
             "AI", "video editing", "content creation", "tutorial", "review",
+            "automation", "passive income", "YouTube", "TikTok", "shorts",
+            # Established competitors
             "Pictory", "InVideo", "Synthesia", "HeyGen", "Descript", "Runway",
-            "automation", "passive income", "YouTube", "TikTok", "shorts"
+            "Fliki", "Lumen5",
+            # 2025-2026 trending tools
+            "Sora", "Kling", "Pika", "Veo", "Luma", "CapCut", "OpusClip",
+            "Opus Clip", "Dream Machine", "Topaz", "ElevenLabs", "Eleven Labs",
+            # Content types
+            "faceless", "avatar", "text to video", "AI voice", "clip generator"
         ]
         found = [kw for kw in keywords if kw.lower() in text.lower()]
         return ", ".join(found[:5]) if found else "AI video tools"
