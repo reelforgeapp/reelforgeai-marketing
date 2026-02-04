@@ -212,13 +212,6 @@ async def trigger_youtube_discovery():
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/apify-discovery")
-async def trigger_apify_discovery():
-    from tasks.discovery_tasks import run_apify_discovery
-    task = run_apify_discovery.delay()
-    return {"status": "triggered", "task_id": task.id}
-
-
 @app.post("/trigger/email-extraction")
 async def trigger_email_extraction():
     from tasks.enrichment_tasks import run_email_extraction

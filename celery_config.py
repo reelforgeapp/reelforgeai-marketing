@@ -43,11 +43,6 @@ celery_app.conf.update(
             'schedule': crontab(hour=2, minute=0),
             'options': {'queue': 'discovery'}
         },
-        'apify-discovery-daily': {
-            'task': 'tasks.discovery_tasks.run_apify_discovery',
-            'schedule': crontab(hour=3, minute=0),
-            'options': {'queue': 'discovery'}
-        },
         'email-extraction-periodic': {
             'task': 'tasks.enrichment_tasks.run_email_extraction',
             'schedule': crontab(hour='*/6', minute=0),

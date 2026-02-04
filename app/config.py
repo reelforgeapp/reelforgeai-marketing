@@ -19,12 +19,7 @@ class Settings(BaseSettings):
     
     # YouTube
     youtube_api_key: str = Field(default="")
-    
-    # Apify
-    apify_api_token: str = Field(default="")
-    apify_instagram_actor: str = Field(default="apify/instagram-profile-scraper")
-    apify_tiktok_actor: str = Field(default="clockworks/tiktok-scraper")
-    
+
     # Brevo
     brevo_api_key: str = Field(default="")
     brevo_sender_email: str = Field(default="marketing@reelforgeai.io")
@@ -50,8 +45,6 @@ class Settings(BaseSettings):
     # Discovery Filters
     min_youtube_subscribers: int = Field(default=5000)
     max_youtube_subscribers: int = Field(default=500000)
-    min_instagram_followers: int = Field(default=5000)
-    min_tiktok_followers: int = Field(default=10000)
     
     # Affiliate
     affiliate_signup_base_url: str = Field(default="https://reelforgeai.io/affiliate")
