@@ -63,30 +63,35 @@ class BouncerClient:
                 return VerificationResult(email, VerificationStatus.UNKNOWN, False)
     
     async def verify_batch(self, limit: int = 100, only_unverified: bool = True) -> dict:
-        db = await get_database_async()
+        db = None
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
-        
-        prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
-            limit
-        )
-        
-        for prospect in prospects:
-            results["processed"] += 1
-            try:
-                result = await self.verify_email(prospect["email"])
-                results[result.status.value] += 1
-                
-                is_verified = result.status == VerificationStatus.VALID
-                await db.execute(
-                    "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
-                    is_verified, result.status.value, prospect["id"]
-                )
-                
-                await asyncio.sleep(0.15)
-            except Exception as e:
-                results["errors"] += 1
-        
+
+        try:
+            db = await get_database_async()
+            prospects = await db.fetch(
+                "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
+                limit
+            )
+
+            for prospect in prospects:
+                results["processed"] += 1
+                try:
+                    result = await self.verify_email(prospect["email"])
+                    results[result.status.value] += 1
+
+                    is_verified = result.status == VerificationStatus.VALID
+                    await db.execute(
+                        "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
+                        is_verified, result.status.value, prospect["id"]
+                    )
+
+                    await asyncio.sleep(0.15)
+                except Exception as e:
+                    results["errors"] += 1
+        finally:
+            if db:
+                await db.close()
+
         return results
 
 
@@ -128,30 +133,35 @@ class ClearoutClient:
                 return VerificationResult(email, VerificationStatus.UNKNOWN, False)
     
     async def verify_batch(self, limit: int = 100, only_unverified: bool = True) -> dict:
-        db = await get_database_async()
+        db = None
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
-        
-        prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
-            limit
-        )
-        
-        for prospect in prospects:
-            results["processed"] += 1
-            try:
-                result = await self.verify_email(prospect["email"])
-                results[result.status.value] += 1
-                
-                is_verified = result.status == VerificationStatus.VALID
-                await db.execute(
-                    "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
-                    is_verified, result.status.value, prospect["id"]
-                )
-                
-                await asyncio.sleep(0.2)
-            except Exception as e:
-                results["errors"] += 1
-        
+
+        try:
+            db = await get_database_async()
+            prospects = await db.fetch(
+                "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
+                limit
+            )
+
+            for prospect in prospects:
+                results["processed"] += 1
+                try:
+                    result = await self.verify_email(prospect["email"])
+                    results[result.status.value] += 1
+
+                    is_verified = result.status == VerificationStatus.VALID
+                    await db.execute(
+                        "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
+                        is_verified, result.status.value, prospect["id"]
+                    )
+
+                    await asyncio.sleep(0.2)
+                except Exception as e:
+                    results["errors"] += 1
+        finally:
+            if db:
+                await db.close()
+
         return results
 
 
@@ -187,30 +197,35 @@ class HunterClient:
                 return VerificationResult(email, VerificationStatus.UNKNOWN, False)
     
     async def verify_batch(self, limit: int = 100, only_unverified: bool = True) -> dict:
-        db = await get_database_async()
+        db = None
         results = {"processed": 0, "valid": 0, "invalid": 0, "catch_all": 0, "unknown": 0, "errors": 0}
-        
-        prospects = await db.fetch(
-            "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
-            limit
-        )
-        
-        for prospect in prospects:
-            results["processed"] += 1
-            try:
-                result = await self.verify_email(prospect["email"])
-                results[result.status.value] += 1
-                
-                is_verified = result.status == VerificationStatus.VALID
-                await db.execute(
-                    "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
-                    is_verified, result.status.value, prospect["id"]
-                )
-                
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                results["errors"] += 1
-        
+
+        try:
+            db = await get_database_async()
+            prospects = await db.fetch(
+                "SELECT id, email FROM marketing_prospects WHERE email IS NOT NULL AND email_verified = FALSE ORDER BY relevance_score DESC LIMIT $1",
+                limit
+            )
+
+            for prospect in prospects:
+                results["processed"] += 1
+                try:
+                    result = await self.verify_email(prospect["email"])
+                    results[result.status.value] += 1
+
+                    is_verified = result.status == VerificationStatus.VALID
+                    await db.execute(
+                        "UPDATE marketing_prospects SET email_verified = $1, verification_status = $2, verified_at = NOW() WHERE id = $3",
+                        is_verified, result.status.value, prospect["id"]
+                    )
+
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    results["errors"] += 1
+        finally:
+            if db:
+                await db.close()
+
         return results
 
 

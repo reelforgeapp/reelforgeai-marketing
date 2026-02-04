@@ -24,11 +24,11 @@ RUN playwright install chromium
 COPY . .
 
 # Create startup script
+# NOTE: Celery worker and beat are handled by the dedicated worker service in render.yaml
+# Do NOT start Celery here to avoid duplicate task execution (which causes duplicate emails)
 RUN echo '#!/bin/bash\n\
 set -e\n\
-echo "Starting ReelForge Marketing Engine v3..."\n\
-celery -A celery_config worker --loglevel=info --concurrency=2 &\n\
-celery -A celery_config beat --loglevel=info &\n\
+echo "Starting ReelForge Marketing Engine v3 (web only)..."\n\
 exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 

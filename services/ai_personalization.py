@@ -88,7 +88,9 @@ class AIPersonalizationService:
         platform = prospect.get("primary_platform", "youtube")
         handle = prospect.get("youtube_handle") or prospect.get("instagram_handle") or prospect.get("tiktok_handle") or ""
         subscribers = prospect.get("youtube_subscribers") or prospect.get("instagram_followers") or prospect.get("tiktok_followers") or 0
-        competitor = (prospect.get("competitor_mentions") or ["AI video tools"])[0]
+        # Safely handle competitor_mentions - could be None, empty list, or list with values
+        competitor_mentions = prospect.get("competitor_mentions") or []
+        competitor = competitor_mentions[0] if competitor_mentions else "AI video tools"
         
         video_context = ""
         if video_data:
@@ -202,7 +204,8 @@ Write the email now:"""
     def _fallback_template(self, prospect: Dict[str, Any], template_type: str) -> Dict[str, str]:
         """Fallback to standard template if AI fails."""
         first_name = (prospect.get("full_name") or "").split()[0] or "there"
-        competitor = (prospect.get("competitor_mentions") or ["AI video tools"])[0]
+        competitor_mentions = prospect.get("competitor_mentions") or []
+        competitor = competitor_mentions[0] if competitor_mentions else "AI video tools"
         
         if template_type == "initial":
             return {
@@ -223,9 +226,10 @@ Write the email now:"""
                 "body": f"""<p>Hi {first_name},</p>
 <p>Quick follow-up on my note about partnering with ReelForge AI. I know your time is valuable, so I'll keep this brief.</p>
 <p>Since launching, creators in our program have generated $500–$2,000/month simply by sharing honest reviews. One partner (a tech reviewer like you) hit $1,500 in their first month alone—purely from audience trust.</p>
+<p><strong>Ready to get started?</strong> <a href="https://www.reelforgeai.io/become-affiliate">Join the affiliate program here</a></p>
 <p>Spots are filling up fast—any thoughts or questions? Just hit reply.</p>
 <p>Best,<br>Larry Barksdale</p>""",
-                "text_body": f"Hi {first_name}, Quick follow-up on ReelForge. Creators earn $500-2000/month. Reply with questions! -Larry"
+                "text_body": f"Hi {first_name}, Quick follow-up on ReelForge. Creators earn $500-2000/month. Join here: https://www.reelforgeai.io/become-affiliate Reply with questions! -Larry"
             }
         else:
             return {

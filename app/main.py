@@ -139,38 +139,33 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
             if event_type == "delivered":
                 await db.execute("UPDATE email_sends SET status = 'delivered', delivered_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
             elif event_type in ("opened", "uniqueOpened"):
-                # Only increment counters if this is the first open (first_opened_at is NULL)
-                # This prevents duplicate webhook deliveries from inflating metrics
-                result = await db.execute("""
+                # Atomically update and check if this was the first open using RETURNING
+                # This prevents race conditions from concurrent webhook deliveries
+                was_first_open = await db.fetchval("""
                     UPDATE email_sends
                     SET status = 'opened',
                         first_opened_at = COALESCE(first_opened_at, $1),
                         open_count = CASE WHEN first_opened_at IS NULL THEN 1 ELSE open_count END
                     WHERE brevo_message_id = $2
+                    RETURNING (first_opened_at = $1) AS was_first
                 """, timestamp, message_id)
                 # Only update prospect stats if this was the first open
-                if email and result and "UPDATE 1" in str(result):
-                    was_first_open = await db.fetchval("""
-                        SELECT first_opened_at = $1 FROM email_sends WHERE brevo_message_id = $2
-                    """, timestamp, message_id)
-                    if was_first_open:
-                        await db.execute("UPDATE marketing_prospects SET total_emails_opened = COALESCE(total_emails_opened, 0) + 1 WHERE email = $1", email)
+                if email and was_first_open:
+                    await db.execute("UPDATE marketing_prospects SET total_emails_opened = COALESCE(total_emails_opened, 0) + 1 WHERE email = $1", email)
             elif event_type in ("clicked", "uniqueClicked"):
-                # Only increment counters if this is the first click (first_clicked_at is NULL)
-                result = await db.execute("""
+                # Atomically update and check if this was the first click using RETURNING
+                # This prevents race conditions from concurrent webhook deliveries
+                was_first_click = await db.fetchval("""
                     UPDATE email_sends
                     SET status = 'clicked',
                         first_clicked_at = COALESCE(first_clicked_at, $1),
                         click_count = CASE WHEN first_clicked_at IS NULL THEN 1 ELSE click_count END
                     WHERE brevo_message_id = $2
+                    RETURNING (first_clicked_at = $1) AS was_first
                 """, timestamp, message_id)
                 # Only update prospect stats if this was the first click
-                if email and result and "UPDATE 1" in str(result):
-                    was_first_click = await db.fetchval("""
-                        SELECT first_clicked_at = $1 FROM email_sends WHERE brevo_message_id = $2
-                    """, timestamp, message_id)
-                    if was_first_click:
-                        await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
+                if email and was_first_click:
+                    await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
             elif event_type in ("hardBounce", "softBounce"):
                 # Only process bounce if not already bounced
                 already_bounced = await db.fetchval("SELECT bounced_at IS NOT NULL FROM email_sends WHERE brevo_message_id = $1", message_id)

@@ -36,8 +36,8 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
         logger.warning("Brevo API key not configured, skipping sync")
         return {"status": "skipped", "reason": "No Brevo API key"}
 
-    # Brevo list ID for ReelForge Prospects
-    BREVO_LIST_ID = 3
+    # Brevo list ID for ReelForge Prospects (configurable via env var)
+    BREVO_LIST_ID = int(getattr(settings, 'brevo_list_id', 3))
 
     try:
         if force_full_sync:
@@ -165,9 +165,9 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
                         results["errors"] += 1
                         continue
 
-                    # Mark as synced
+                    # Mark as synced (don't update updated_at to avoid sync loop)
                     await db.execute(
-                        "UPDATE marketing_prospects SET brevo_synced_at = NOW(), updated_at = NOW() WHERE id = $1",
+                        "UPDATE marketing_prospects SET brevo_synced_at = NOW() WHERE id = $1",
                         p["id"]
                     )
                     
@@ -196,20 +196,21 @@ def purge_expired_data(self):
 
 async def _purge_data_async() -> dict:
     settings = get_settings()
-    db = await get_database_async()
-    
+    db = None
+
     results = {"prospects_purged": 0, "errors": 0}
-    
+
     try:
+        db = await get_database_async()
         cutoff = datetime.utcnow() - timedelta(days=settings.data_retention_days)
-        
+
         expired = await db.fetch("""
             SELECT id FROM marketing_prospects
             WHERE discovered_at < $1
               AND status NOT IN ('converted', 'active_affiliate')
             LIMIT 100
         """, cutoff)
-        
+
         for prospect in expired:
             try:
                 async with DatabaseTransaction() as conn:
@@ -219,13 +220,16 @@ async def _purge_data_async() -> dict:
                 results["prospects_purged"] += 1
             except Exception as e:
                 results["errors"] += 1
-        
+
         logger.info("Data purge complete", **results)
-        
+
     except Exception as e:
         logger.error("Data purge failed", error=str(e))
         results["error"] = str(e)
-    
+    finally:
+        if db:
+            await db.close()
+
     return results
 
 
@@ -235,14 +239,19 @@ def cleanup_old_data(self):
 
 
 async def _cleanup_async() -> dict:
-    db = await get_database_async()
+    db = None
     results = {"cleaned": 0}
-    
+
     try:
+        db = await get_database_async()
         await db.execute("DELETE FROM idempotency_keys WHERE expires_at < NOW()")
+        results["cleaned"] = 1
         logger.info("Cleanup complete")
     except Exception as e:
         logger.error("Cleanup failed", error=str(e))
         results["error"] = str(e)
-    
+    finally:
+        if db:
+            await db.close()
+
     return results

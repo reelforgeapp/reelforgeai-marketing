@@ -6,10 +6,14 @@ sys.path.insert(0, '/app')
 
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta
 from jinja2 import Template, UndefinedError
 import structlog
 import redis.asyncio as redis
+
+# RFC 5322 compliant email regex pattern (simplified but robust)
+EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 from celery_config import celery_app, BaseTaskWithRetry
 from app.config import get_settings
@@ -214,10 +218,10 @@ async def _process_sequences_async() -> dict:
                         else:
                             pdata["competitor"] = "AI video tools"
                     
-                    # Edge case: validate email format
+                    # Edge case: validate email format with proper regex
                     to_email = seq["email"]
-                    if not to_email or "@" not in to_email:
-                        logger.warning("Invalid email", sequence_id=str(seq["id"]))
+                    if not to_email or not EMAIL_PATTERN.match(to_email):
+                        logger.warning("Invalid email format", sequence_id=str(seq["id"]), email=to_email[:20] if to_email else None)
                         results["skipped"] += 1
                         continue
                     

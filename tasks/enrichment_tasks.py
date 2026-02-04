@@ -20,8 +20,6 @@ def run_email_extraction(self):
 
 
 async def _email_extraction_async() -> dict:
-    db = await get_database_async()
-    
     results = {
         "processed": 0,
         "emails_found": 0,
@@ -29,23 +27,23 @@ async def _email_extraction_async() -> dict:
         "playwright_method": 0,
         "failed": 0
     }
-    
+
     try:
         from discovery.hybrid_email_extractor import HybridEmailExtractor
-        
+
         extractor = HybridEmailExtractor()
         extraction_results = await extractor.extract_for_prospects(limit=30, only_missing=True)
         results.update(extraction_results)
-        
+
         logger.info("Email extraction complete", **results)
-        
+
     except ImportError as e:
         logger.warning("Email extractor not available", error=str(e))
         results["status"] = "import_error"
     except Exception as e:
         logger.error("Email extraction failed", error=str(e))
         results["error"] = str(e)
-    
+
     return results
 
 
