@@ -452,7 +452,7 @@ async def _send_trends_summary_email(settings, results: dict) -> None:
         <li><strong>Errors:</strong> {results.get('errors', 0)}</li>
     </ul>
 
-    <p>Review keywords at: <a href="https://your-app.onrender.com/keywords">/keywords</a></p>
+    <p>Review keywords at: <a href="https://reelforgeai-marketing.onrender.com/keywords">/keywords</a></p>
 
     <p style="color: #666; font-size: 12px;">
         This report was generated automatically by ReelForge Marketing Engine using Google Trends data.
