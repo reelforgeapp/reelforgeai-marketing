@@ -54,7 +54,7 @@ def safe_render_template(template_str: str, data: dict, default: str = "") -> st
             from jinja2 import Environment, Undefined
             env = Environment(undefined=Undefined)
             return env.from_string(template_str).render(**data)
-        except:
+        except Exception:
             return default
     except Exception as e:
         logger.error("Template render failed", error=str(e))

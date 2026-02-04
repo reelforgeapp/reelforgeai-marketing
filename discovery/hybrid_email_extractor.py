@@ -22,8 +22,8 @@ class HybridEmailExtractor:
         self.settings = get_settings()
     
     async def extract_for_prospects(self, limit: int = 30, only_missing: bool = True) -> dict:
-        db = await get_database_async()
-        
+        db = None
+
         results = {
             "processed": 0,
             "emails_found": 0,
@@ -31,54 +31,64 @@ class HybridEmailExtractor:
             "playwright_method": 0,
             "failed": 0
         }
-        
-        query = """
-            SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
-            FROM marketing_prospects
-            WHERE email IS NULL AND status = 'discovered'
-            ORDER BY relevance_score DESC
-            LIMIT $1
-        """ if only_missing else """
-            SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
-            FROM marketing_prospects
-            ORDER BY relevance_score DESC
-            LIMIT $1
-        """
-        
-        prospects = await db.fetch(query, limit)
-        
-        for prospect in prospects:
-            results["processed"] += 1
-            
-            email = None
-            method = None
-            
-            # Try YouTube About page first
-            if prospect['youtube_channel_id']:
-                email, method = await self._extract_from_youtube(prospect['youtube_channel_id'])
-            
-            # Try website/bio link
-            if not email and prospect.get('website_url'):
-                email, method = await self._extract_from_url(prospect['website_url'])
-            
-            if not email and prospect.get('bio_link_url'):
-                email, method = await self._extract_from_url(prospect['bio_link_url'])
-            
-            if email:
-                await db.execute(
-                    "UPDATE marketing_prospects SET email = $1, status = 'enriched' WHERE id = $2",
-                    email, prospect['id']
-                )
-                results["emails_found"] += 1
-                if method == "http":
-                    results["http_method"] += 1
-                elif method == "playwright":
-                    results["playwright_method"] += 1
-            else:
-                results["failed"] += 1
-            
-            await asyncio.sleep(0.5)
-        
+
+        try:
+            db = await get_database_async()
+
+            query = """
+                SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
+                FROM marketing_prospects
+                WHERE email IS NULL AND status = 'discovered'
+                ORDER BY relevance_score DESC
+                LIMIT $1
+            """ if only_missing else """
+                SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
+                FROM marketing_prospects
+                ORDER BY relevance_score DESC
+                LIMIT $1
+            """
+
+            prospects = await db.fetch(query, limit)
+
+            for prospect in prospects:
+                results["processed"] += 1
+
+                email = None
+                method = None
+
+                # Try YouTube About page first
+                if prospect['youtube_channel_id']:
+                    email, method = await self._extract_from_youtube(prospect['youtube_channel_id'])
+
+                # Try website/bio link
+                if not email and prospect.get('website_url'):
+                    email, method = await self._extract_from_url(prospect['website_url'])
+
+                if not email and prospect.get('bio_link_url'):
+                    email, method = await self._extract_from_url(prospect['bio_link_url'])
+
+                if email:
+                    await db.execute(
+                        "UPDATE marketing_prospects SET email = $1, email_source = 'extracted', status = 'enriched', last_enriched_at = NOW() WHERE id = $2",
+                        email, prospect['id']
+                    )
+                    results["emails_found"] += 1
+                    if method == "http":
+                        results["http_method"] += 1
+                    elif method == "playwright":
+                        results["playwright_method"] += 1
+                else:
+                    results["failed"] += 1
+
+                await asyncio.sleep(0.5)
+
+        except Exception as e:
+            logger.error("Email extraction failed", error=str(e))
+            results["error"] = str(e)
+        finally:
+            if db:
+                await db.close()
+
         return results
     
     async def _extract_from_youtube(self, channel_id: str) -> tuple[Optional[str], Optional[str]]:

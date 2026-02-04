@@ -41,7 +41,9 @@ async def lifespan(app: FastAPI):
     await close_database()
 
 
-app = FastAPI(title="ReelForge Marketing Engine", version="3.0.0", lifespan=lifespan)
+APP_VERSION = "4.12.0"
+
+app = FastAPI(title="ReelForge Marketing Engine", version=APP_VERSION, lifespan=lifespan)
 
 
 async def validate_brevo_webhook(request: Request) -> bytes:
@@ -62,7 +64,7 @@ async def validate_brevo_webhook(request: Request) -> bytes:
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": "3.0.0"}
+    return {"status": "healthy", "version": APP_VERSION}
 
 
 @app.get("/status")
@@ -102,7 +104,7 @@ async def get_status():
     
     return {
         "status": "running",
-        "version": "3.3.0",
+        "version": APP_VERSION,
         "totals": dict(counts) if counts else {},
         "features": {
             "email_verification": verification_service,
@@ -129,7 +131,7 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
         timestamp_str = payload.get("date") or payload.get("ts_event")
         try:
             timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')) if timestamp_str else datetime.utcnow()
-        except:
+        except (ValueError, AttributeError, TypeError):
             timestamp = datetime.utcnow()
 
         # Only connect to DB for events we care about

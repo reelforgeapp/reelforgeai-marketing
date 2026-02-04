@@ -55,8 +55,8 @@ def run_email_verification(self):
 
 async def _email_verification_async() -> dict:
     settings = get_settings()
-    db = await get_database_async()
-    
+    db = None
+
     results = {
         "processed": 0,
         "valid": 0,
@@ -64,19 +64,20 @@ async def _email_verification_async() -> dict:
         "catch_all": 0,
         "errors": 0
     }
-    
+
     if not settings.bouncer_api_key and not settings.clearout_api_key and not settings.hunter_api_key:
         return {"status": "skipped", "reason": "No verification service configured"}
-    
+
     try:
+        db = await get_database_async()
         from services.email_verification import get_verification_client
-        
+
         client = get_verification_client()
         verification_results = await client.verify_batch(limit=settings.email_verification_limit, only_unverified=True)
         results.update(verification_results)
-        
+
         logger.info("Email verification complete", **results)
-        
+
     except ImportError as e:
         logger.warning("Verification module not available", error=str(e))
         results["status"] = "import_error"
@@ -86,5 +87,8 @@ async def _email_verification_async() -> dict:
     except Exception as e:
         logger.error("Email verification failed", error=str(e))
         results["error"] = str(e)
-    
+    finally:
+        if db:
+            await db.close()
+
     return results

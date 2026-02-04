@@ -28,7 +28,7 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
         force_full_sync: If True, sync ALL verified prospects regardless of brevo_synced_at
     """
     settings = get_settings()
-    db = await get_database_async()
+    db = None
 
     results = {"synced": 0, "updated": 0, "errors": 0, "skipped": 0, "force_sync": force_full_sync}
 
@@ -37,9 +37,11 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
         return {"status": "skipped", "reason": "No Brevo API key"}
 
     # Brevo list ID for ReelForge Prospects (configurable via env var)
-    BREVO_LIST_ID = int(getattr(settings, 'brevo_list_id', 3))
+    BREVO_LIST_ID = settings.brevo_list_id
 
     try:
+        db = await get_database_async()
+
         if force_full_sync:
             # Force sync: get ALL verified prospects (no time filter)
             logger.info("Starting FORCED full sync to Brevo")
@@ -184,8 +186,9 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
         logger.error("Brevo sync failed", error=str(e))
         results["error"] = str(e)
     finally:
-        await db.close()
-    
+        if db:
+            await db.close()
+
     return results
 
 

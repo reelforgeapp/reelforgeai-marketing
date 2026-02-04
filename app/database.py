@@ -2,14 +2,15 @@
 ReelForge Marketing Engine - Database Connection
 """
 
-import asyncio
-import os
 import asyncpg
 import structlog
 
 from app.config import get_settings
 
 logger = structlog.get_logger()
+
+# Global pool for FastAPI lifespan
+_app_pool: asyncpg.Pool = None
 
 
 async def get_database_async() -> asyncpg.Pool:
@@ -21,16 +22,25 @@ async def get_database_async() -> asyncpg.Pool:
         max_size=10,
         command_timeout=60,
     )
-    logger.info("Database pool created")
+    logger.debug("Database pool created")
     return pool
 
 
 async def init_database() -> asyncpg.Pool:
-    return await get_database_async()
+    """Initialize the global database pool for FastAPI app."""
+    global _app_pool
+    _app_pool = await get_database_async()
+    logger.info("Application database pool initialized")
+    return _app_pool
 
 
 async def close_database():
-    pass
+    """Close the global database pool."""
+    global _app_pool
+    if _app_pool:
+        await _app_pool.close()
+        _app_pool = None
+        logger.info("Application database pool closed")
 
 
 class DatabaseTransaction:

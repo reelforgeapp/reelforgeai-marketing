@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     brevo_sender_email: str = Field(default="marketing@reelforgeai.io")
     brevo_sender_name: str = Field(default="Larry Barksdale")
     brevo_webhook_secret: str = Field(default="")
+    brevo_list_id: int = Field(default=3)  # Brevo contact list ID for prospects
     
     # Email Verification
     bouncer_api_key: str = Field(default="")
