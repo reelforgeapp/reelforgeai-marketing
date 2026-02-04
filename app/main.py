@@ -344,9 +344,10 @@ async def list_keywords():
     db = None
     try:
         db = await get_database_async()
+        # Use only columns from base schema, with safe defaults for optional columns
         keywords = await db.fetch("""
             SELECT id, competitor_name, keyword, platform, is_active,
-                   last_searched_at, results_count, priority, created_at
+                   last_searched_at, priority, created_at
             FROM competitor_keywords
             ORDER BY priority DESC, is_active DESC, competitor_name, keyword
         """)
