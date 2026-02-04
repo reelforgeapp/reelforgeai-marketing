@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     trends_min_interest_score: int = Field(default=25)  # Minimum Google Trends score to keep keyword active
     trends_rising_threshold: int = Field(default=50)  # Score above this = high priority
 
+    # Rate Limits (seconds between API calls)
+    youtube_api_rate_limit: float = Field(default=0.5)  # 500ms between YouTube API calls
+    email_verification_rate_limit: float = Field(default=0.1)  # 100ms between verification calls
+    trends_api_rate_limit: float = Field(default=1.0)  # 1s between SerpApi calls
+
+    # Sync Limits (batch sizes for external syncs)
+    brevo_sync_batch_limit: int = Field(default=100)  # Contacts per Brevo sync batch
+    brevo_max_sync_per_run: int = Field(default=500)  # Max contacts to sync per task run
+
     # Application
     environment: str = Field(default="development")
     admin_api_key: str = Field(default="change-me-in-production")

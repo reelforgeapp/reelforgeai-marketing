@@ -80,7 +80,7 @@ class HybridEmailExtractor:
                 else:
                     results["failed"] += 1
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(self.settings.youtube_api_rate_limit)
 
         except Exception as e:
             logger.error("Email extraction failed", error=str(e))

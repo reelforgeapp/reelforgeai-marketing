@@ -85,7 +85,7 @@ class BouncerClient:
                         is_verified, result.status.value, prospect["id"]
                     )
 
-                    await asyncio.sleep(0.15)
+                    await asyncio.sleep(self.settings.email_verification_rate_limit)
                 except Exception as e:
                     results["errors"] += 1
         finally:
@@ -155,7 +155,7 @@ class ClearoutClient:
                         is_verified, result.status.value, prospect["id"]
                     )
 
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(self.settings.email_verification_rate_limit)
                 except Exception as e:
                     results["errors"] += 1
         finally:
@@ -219,7 +219,7 @@ class HunterClient:
                         is_verified, result.status.value, prospect["id"]
                     )
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(self.settings.email_verification_rate_limit)
                 except Exception as e:
                     results["errors"] += 1
         finally:

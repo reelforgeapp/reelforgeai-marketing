@@ -59,7 +59,7 @@ class YouTubeDiscovery:
                     logger.error("Channel processing failed", channel_id=channel_id, error=str(e))
                     results["errors"] += 1
                 
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(self.settings.email_verification_rate_limit)
                 
         except Exception as e:
             logger.error("YouTube search failed", keyword=keyword, error=str(e))

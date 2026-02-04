@@ -319,7 +319,7 @@ async def _process_sequences_async() -> dict:
                         results["errors"] += 1
                     
                     # Rate limit between sends
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(settings.youtube_api_rate_limit)
                     
                 except Exception as e:
                     logger.error("Sequence processing error", sequence_id=str(seq["id"]), error=str(e))

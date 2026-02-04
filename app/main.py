@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     await close_database()
 
 
-APP_VERSION = "4.12.0"
+APP_VERSION = "4.13.0"
 
 app = FastAPI(title="ReelForge Marketing Engine", version=APP_VERSION, lifespan=lifespan)
 
@@ -169,31 +169,33 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
                 if email and was_first_click:
                     await db.execute("UPDATE marketing_prospects SET total_emails_clicked = COALESCE(total_emails_clicked, 0) + 1 WHERE email = $1", email)
             elif event_type in ("hardBounce", "softBounce"):
-                # Only process bounce if not already bounced
+                # Only process bounce if not already bounced - use transaction for atomicity
                 already_bounced = await db.fetchval("SELECT bounced_at IS NOT NULL FROM email_sends WHERE brevo_message_id = $1", message_id)
                 if not already_bounced:
-                    await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
-                    if email:
-                        await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
-                        # Stop active sequences for bounced emails
-                        await db.execute("""
-                            UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'bounced', completed_at = NOW()
-                            WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
-                            AND status IN ('pending', 'active')
-                        """, email)
+                    async with db.transaction():
+                        await db.execute("UPDATE email_sends SET status = 'bounced', bounced_at = $1 WHERE brevo_message_id = $2", timestamp, message_id)
+                        if email:
+                            await db.execute("UPDATE marketing_prospects SET status = 'bounced' WHERE email = $1", email)
+                            # Stop active sequences for bounced emails
+                            await db.execute("""
+                                UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'bounced', completed_at = NOW()
+                                WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                                AND status IN ('pending', 'active')
+                            """, email)
             elif event_type == "unsubscribed":
-                # Only process unsubscribe if not already processed
+                # Only process unsubscribe if not already processed - use transaction for atomicity
                 current_status = await db.fetchval("SELECT status FROM email_sends WHERE brevo_message_id = $1", message_id)
                 if current_status != 'unsubscribed':
-                    await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
-                    if email:
-                        await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
-                        # Stop active sequences for unsubscribed
-                        await db.execute("""
-                            UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
-                            WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
-                            AND status IN ('pending', 'active')
-                        """, email)
+                    async with db.transaction():
+                        await db.execute("UPDATE email_sends SET status = 'unsubscribed' WHERE brevo_message_id = $1", message_id)
+                        if email:
+                            await db.execute("UPDATE marketing_prospects SET status = 'unsubscribed' WHERE email = $1", email)
+                            # Stop active sequences for unsubscribed
+                            await db.execute("""
+                                UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
+                                WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
+                                AND status IN ('pending', 'active')
+                            """, email)
 
         return {"status": "processed", "event": event_type}
     except json.JSONDecodeError:

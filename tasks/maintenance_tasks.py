@@ -58,8 +58,8 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
                 ORDER BY
                     CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
                     relevance_score DESC
-                LIMIT 500
-            """)
+                LIMIT $1
+            """, settings.brevo_max_sync_per_run)
         else:
             # Normal sync: only prospects that need syncing
             # 1. Never synced (brevo_synced_at IS NULL)
@@ -83,8 +83,8 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
                 ORDER BY
                     CASE WHEN brevo_synced_at IS NULL THEN 0 ELSE 1 END,
                     relevance_score DESC
-                LIMIT 100
-            """)
+                LIMIT $1
+            """, settings.brevo_sync_batch_limit)
         
         if not prospects:
             logger.info("No prospects to sync to Brevo")
@@ -174,7 +174,7 @@ async def _sync_brevo_async(force_full_sync: bool = False) -> dict:
                     )
                     
                     # Rate limit
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(settings.email_verification_rate_limit)
                     
                 except Exception as e:
                     logger.error("Brevo contact sync error", email=p["email"], error=str(e))

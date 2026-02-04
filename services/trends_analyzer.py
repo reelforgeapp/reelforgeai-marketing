@@ -7,10 +7,10 @@ import asyncio
 import httpx
 import structlog
 from typing import Optional
-from datetime import datetime
 
 from app.config import get_settings
 from app.database import get_database_async
+from services.http_client import get_serpapi_client
 
 logger = structlog.get_logger()
 
@@ -23,6 +23,7 @@ class TrendsAnalyzer:
     def __init__(self):
         self.settings = get_settings()
         self.api_key = self.settings.serpapi_api_key
+        self.http_client = get_serpapi_client()
 
     async def get_trend_score(self, keyword: str, timeframe: str = "today 3-m") -> Optional[dict]:
         """
@@ -48,10 +49,9 @@ class TrendsAnalyzer:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(self.BASE_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(self.BASE_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
 
             # Extract interest over time
             timeline = data.get("interest_over_time", {}).get("timeline_data", [])
@@ -116,10 +116,9 @@ class TrendsAnalyzer:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(self.BASE_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(self.BASE_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
 
             rising = data.get("related_queries", {}).get("rising", [])
 
@@ -168,7 +167,7 @@ class TrendsAnalyzer:
             for kw in keywords:
                 try:
                     # Rate limit: SerpApi has limits, be conservative
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(self.settings.trends_api_rate_limit)
 
                     trend_data = await self.get_trend_score(kw["keyword"])
                     results["analyzed"] += 1
@@ -240,7 +239,7 @@ class TrendsAnalyzer:
 
             for kw in top_keywords:
                 try:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(self.settings.trends_api_rate_limit)
                     related = await self.get_related_queries(kw["keyword"])
 
                     for query in related[:3]:  # Top 3 related per keyword
@@ -302,10 +301,9 @@ class TrendsAnalyzer:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(self.BASE_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(self.BASE_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
 
             timeline = data.get("interest_over_time", {}).get("timeline_data", [])
             averages = data.get("interest_over_time", {}).get("averages", [])
