@@ -255,3 +255,148 @@ async def _cleanup_async() -> dict:
             await db.close()
 
     return results
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')
+def check_deliverability_metrics(self):
+    return asyncio.run(_check_deliverability_async())
+
+
+async def _check_deliverability_async() -> dict:
+    """Check email deliverability metrics and send alerts if thresholds exceeded."""
+    settings = get_settings()
+    db = None
+
+    results = {
+        "total_sent_24h": 0,
+        "bounced_24h": 0,
+        "bounce_rate": 0.0,
+        "spam_complaints_24h": 0,
+        "spam_rate": 0.0,
+        "open_rate_24h": 0.0,
+        "alerts_sent": 0
+    }
+
+    if not settings.brevo_api_key:
+        return {"status": "skipped", "reason": "No Brevo API key"}
+
+    try:
+        db = await get_database_async()
+
+        # Get metrics from last 24 hours
+        metrics = await db.fetchrow("""
+            SELECT
+                COUNT(*) as total_sent,
+                COUNT(*) FILTER (WHERE status = 'bounced') as bounced,
+                COUNT(*) FILTER (WHERE status IN ('opened', 'clicked')) as opened,
+                COUNT(*) FILTER (WHERE status = 'unsubscribed') as unsubscribed
+            FROM email_sends
+            WHERE sent_at >= NOW() - INTERVAL '24 hours'
+        """)
+
+        if metrics and metrics["total_sent"] > 0:
+            total = metrics["total_sent"]
+            results["total_sent_24h"] = total
+            results["bounced_24h"] = metrics["bounced"] or 0
+            results["bounce_rate"] = results["bounced_24h"] / total
+            results["open_rate_24h"] = (metrics["opened"] or 0) / total
+
+            # Get spam complaints from Brevo (via webhook status or API)
+            # For now, use unsubscribes as a proxy indicator
+            results["spam_complaints_24h"] = metrics["unsubscribed"] or 0
+            results["spam_rate"] = results["spam_complaints_24h"] / total
+
+        # Check thresholds and send alerts
+        alerts = []
+
+        if results["bounce_rate"] > settings.bounce_rate_threshold:
+            alerts.append(
+                f"⚠️ HIGH BOUNCE RATE: {results['bounce_rate']:.1%} "
+                f"({results['bounced_24h']}/{results['total_sent_24h']} emails bounced in 24h)\n"
+                f"Threshold: {settings.bounce_rate_threshold:.1%}"
+            )
+
+        if results["spam_rate"] > settings.spam_rate_threshold:
+            alerts.append(
+                f"🚨 HIGH SPAM/UNSUBSCRIBE RATE: {results['spam_rate']:.2%} "
+                f"({results['spam_complaints_24h']}/{results['total_sent_24h']} in 24h)\n"
+                f"Threshold: {settings.spam_rate_threshold:.2%}"
+            )
+
+        # Send low open rate warning (informational, not critical)
+        if results["total_sent_24h"] >= 20 and results["open_rate_24h"] < 0.10:
+            alerts.append(
+                f"📉 LOW OPEN RATE: {results['open_rate_24h']:.1%} in last 24h\n"
+                f"Consider reviewing subject lines and sender reputation."
+            )
+
+        if alerts and settings.alert_email:
+            await _send_alert_email(settings, alerts, results)
+            results["alerts_sent"] = len(alerts)
+            logger.warning("Deliverability alerts sent", alert_count=len(alerts), to=settings.alert_email)
+        else:
+            logger.info("Deliverability check complete - no alerts", **results)
+
+    except Exception as e:
+        logger.error("Deliverability check failed", error=str(e))
+        results["error"] = str(e)
+    finally:
+        if db:
+            await db.close()
+
+    return results
+
+
+async def _send_alert_email(settings, alerts: list, metrics: dict) -> None:
+    """Send deliverability alert email via Brevo."""
+    alert_body = "\n\n".join(alerts)
+
+    html_content = f"""
+    <h2>ReelForge Marketing - Deliverability Alert</h2>
+    <p>The following issues were detected in your email campaign:</p>
+    <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+        <pre style="white-space: pre-wrap;">{alert_body}</pre>
+    </div>
+    <h3>24-Hour Metrics Summary</h3>
+    <ul>
+        <li><strong>Emails Sent:</strong> {metrics['total_sent_24h']}</li>
+        <li><strong>Bounced:</strong> {metrics['bounced_24h']} ({metrics['bounce_rate']:.1%})</li>
+        <li><strong>Open Rate:</strong> {metrics['open_rate_24h']:.1%}</li>
+        <li><strong>Unsubscribes:</strong> {metrics['spam_complaints_24h']}</li>
+    </ul>
+    <h3>Recommended Actions</h3>
+    <ul>
+        <li>Review recent email content for spam triggers</li>
+        <li>Check email verification is working properly</li>
+        <li>Consider reducing send volume temporarily</li>
+        <li>Review Brevo dashboard for detailed analytics</li>
+    </ul>
+    <p style="color: #666; font-size: 12px;">
+        This alert was generated automatically by ReelForge Marketing Engine.
+    </p>
+    """
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": settings.brevo_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {
+                        "name": "ReelForge Alerts",
+                        "email": settings.brevo_sender_email
+                    },
+                    "to": [{"email": settings.alert_email}],
+                    "subject": "⚠️ ReelForge Deliverability Alert - Action Required",
+                    "htmlContent": html_content,
+                    "tags": ["system-alert", "deliverability"]
+                }
+            )
+
+            if response.status_code not in (200, 201):
+                logger.error("Failed to send alert email", status=response.status_code, body=response.text[:200])
+        except Exception as e:
+            logger.error("Alert email send failed", error=str(e))

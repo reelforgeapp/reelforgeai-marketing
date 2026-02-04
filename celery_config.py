@@ -68,6 +68,11 @@ celery_app.conf.update(
             'schedule': crontab(hour=6, minute=0),  # Daily at 6 AM UTC
             'options': {'queue': 'default'}
         },
+        'deliverability-check-daily': {
+            'task': 'tasks.maintenance_tasks.check_deliverability_metrics',
+            'schedule': crontab(hour=9, minute=0),  # Daily at 9 AM UTC (after morning sends)
+            'options': {'queue': 'default'}
+        },
     },
 )
 

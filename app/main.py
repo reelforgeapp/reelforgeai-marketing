@@ -255,6 +255,14 @@ async def trigger_brevo_sync_full():
     return {"status": "triggered", "task_id": task.id, "mode": "force_full_sync"}
 
 
+@app.post("/trigger/deliverability-check")
+async def trigger_deliverability_check():
+    """Run deliverability metrics check and send alerts if thresholds exceeded."""
+    from tasks.maintenance_tasks import check_deliverability_metrics
+    task = check_deliverability_metrics.delay()
+    return {"status": "triggered", "task_id": task.id}
+
+
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
     from celery.result import AsyncResult

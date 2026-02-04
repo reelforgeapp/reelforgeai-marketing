@@ -52,7 +52,12 @@ class Settings(BaseSettings):
     
     # Compliance
     data_retention_days: int = Field(default=180)
-    
+
+    # Alerts & Monitoring
+    alert_email: str = Field(default="barksdale2004@gmail.com")
+    bounce_rate_threshold: float = Field(default=0.02)  # 2% - alert if exceeded
+    spam_rate_threshold: float = Field(default=0.001)  # 0.1% - alert if exceeded
+
     # Application
     environment: str = Field(default="development")
     admin_api_key: str = Field(default="change-me-in-production")
