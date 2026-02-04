@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     discovery_keywords_limit: int = Field(default=10)
     discovery_videos_per_keyword: int = Field(default=50)
 
+    # SerpApi (Google Trends)
+    serpapi_api_key: str = Field(default="")
+    trends_min_interest_score: int = Field(default=25)  # Minimum Google Trends score to keep keyword active
+    trends_rising_threshold: int = Field(default=50)  # Score above this = high priority
+
     # Application
     environment: str = Field(default="development")
     admin_api_key: str = Field(default="change-me-in-production")

@@ -73,6 +73,11 @@ celery_app.conf.update(
             'schedule': crontab(hour=9, minute=0),  # Daily at 9 AM UTC (after morning sends)
             'options': {'queue': 'default'}
         },
+        'keyword-trends-monthly': {
+            'task': 'tasks.maintenance_tasks.analyze_keyword_trends',
+            'schedule': crontab(day_of_month=1, hour=3, minute=0),  # 1st of each month at 3 AM UTC
+            'options': {'queue': 'default'}
+        },
     },
 )
 

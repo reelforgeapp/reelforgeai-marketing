@@ -400,3 +400,83 @@ async def _send_alert_email(settings, alerts: list, metrics: dict) -> None:
                 logger.error("Failed to send alert email", status=response.status_code, body=response.text[:200])
         except Exception as e:
             logger.error("Alert email send failed", error=str(e))
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=2, queue='default')
+def analyze_keyword_trends(self):
+    """Analyze Google Trends data and update keyword priorities."""
+    return asyncio.run(_analyze_trends_async())
+
+
+async def _analyze_trends_async() -> dict:
+    """Run trends analysis on all keywords."""
+    settings = get_settings()
+
+    if not settings.serpapi_api_key:
+        logger.warning("SerpApi key not configured, skipping trends analysis")
+        return {"status": "skipped", "reason": "No SerpApi key configured"}
+
+    try:
+        from services.trends_analyzer import TrendsAnalyzer
+
+        analyzer = TrendsAnalyzer()
+        results = await analyzer.analyze_all_keywords()
+
+        # Send summary email if significant changes
+        if settings.alert_email and (results.get("boosted", 0) + results.get("deactivated", 0) > 3):
+            await _send_trends_summary_email(settings, results)
+
+        return results
+
+    except ImportError as e:
+        logger.error("Trends analyzer import failed", error=str(e))
+        return {"status": "error", "reason": str(e)}
+    except Exception as e:
+        logger.error("Trends analysis failed", error=str(e))
+        return {"status": "error", "reason": str(e)}
+
+
+async def _send_trends_summary_email(settings, results: dict) -> None:
+    """Send trends analysis summary email."""
+    html_content = f"""
+    <h2>ReelForge Marketing - Keyword Trends Update</h2>
+    <p>Monthly keyword trends analysis has been completed.</p>
+
+    <h3>Summary</h3>
+    <ul>
+        <li><strong>Keywords Analyzed:</strong> {results.get('analyzed', 0)}</li>
+        <li><strong>Boosted (trending up):</strong> {results.get('boosted', 0)}</li>
+        <li><strong>Demoted (declining):</strong> {results.get('demoted', 0)}</li>
+        <li><strong>Deactivated (low interest):</strong> {results.get('deactivated', 0)}</li>
+        <li><strong>New Keywords Discovered:</strong> {results.get('new_suggestions', 0)}</li>
+        <li><strong>Errors:</strong> {results.get('errors', 0)}</li>
+    </ul>
+
+    <p>Review keywords at: <a href="https://your-app.onrender.com/keywords">/keywords</a></p>
+
+    <p style="color: #666; font-size: 12px;">
+        This report was generated automatically by ReelForge Marketing Engine using Google Trends data.
+    </p>
+    """
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": settings.brevo_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {
+                        "name": "ReelForge Reports",
+                        "email": settings.brevo_sender_email
+                    },
+                    "to": [{"email": settings.alert_email}],
+                    "subject": "📈 ReelForge Keyword Trends Update",
+                    "htmlContent": html_content,
+                    "tags": ["system-report", "trends"]
+                }
+            )
+        except Exception as e:
+            logger.error("Trends summary email failed", error=str(e))

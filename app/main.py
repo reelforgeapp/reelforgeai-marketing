@@ -263,6 +263,69 @@ async def trigger_deliverability_check():
     return {"status": "triggered", "task_id": task.id}
 
 
+@app.post("/trigger/keyword-trends")
+async def trigger_keyword_trends():
+    """Run Google Trends analysis to update keyword priorities."""
+    from tasks.maintenance_tasks import analyze_keyword_trends
+    task = analyze_keyword_trends.delay()
+    return {"status": "triggered", "task_id": task.id}
+
+
+@app.get("/keywords/trends/{keyword}")
+async def get_keyword_trend(keyword: str):
+    """Get Google Trends data for a specific keyword."""
+    settings = get_settings()
+
+    if not settings.serpapi_api_key:
+        raise HTTPException(status_code=503, detail="SerpApi not configured")
+
+    try:
+        from services.trends_analyzer import TrendsAnalyzer
+        analyzer = TrendsAnalyzer()
+        result = await analyzer.get_trend_score(keyword)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Could not fetch trend data")
+
+        # Also get related queries
+        related = await analyzer.get_related_queries(keyword)
+        result["related_queries"] = related
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Trend lookup failed", keyword=keyword, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/keywords/compare")
+async def compare_keywords(request: Request):
+    """Compare multiple keywords head-to-head using Google Trends."""
+    settings = get_settings()
+
+    if not settings.serpapi_api_key:
+        raise HTTPException(status_code=503, detail="SerpApi not configured")
+
+    try:
+        data = await request.json()
+        keywords = data.get("keywords", [])
+
+        if not keywords or len(keywords) < 2:
+            raise HTTPException(status_code=400, detail="At least 2 keywords required")
+
+        from services.trends_analyzer import TrendsAnalyzer
+        analyzer = TrendsAnalyzer()
+        result = await analyzer.get_competitor_comparison(keywords)
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Keyword comparison failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
     from celery.result import AsyncResult
