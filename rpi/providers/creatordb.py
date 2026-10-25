@@ -15,7 +15,11 @@ api-v3/configuring_advanced_search_filters) on 2026-10-25:
   * errors: 400 VALIDATION_ERROR, 403 FRACTIONAL_CALLS_NOT_ENABLED,
     429 RATE_LIMIT_EXCEEDED (retry) or QUOTA_EXCEEDED (out of credits)
 
-Live behavior is checked with scripts/rpi_verify_creatordb.py. CreatorDB
+Checked live on 2026-10-25 with scripts/rpi_verify_creatordb.py --probe:
+every endpoint below returned the mapped fields; responses also carry
+fields the spec omits (profile: hasEmail, isAgencyRepresented, isPodcast,
+joinedDate, totalViews; performance: videoPrice/shortsPrice estimates;
+sponsorship: detectedBrandNamesByVideo), which are not used yet. CreatorDB
 publishes no API terms of service, so scoring on CreatorDB fields stays off
 until the customer agreement is reviewed (RPI_CREATORDB_SCORING_PERMITTED).
 

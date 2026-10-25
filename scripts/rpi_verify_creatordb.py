@@ -125,7 +125,11 @@ async def main() -> None:
         result = await adapter.search_creators(CreatorSearchCriteria(
             keywords=["faceless youtube", "youtube automation"], min_subscribers=10_000, max_subscribers=150_000,
             limit=5))
-        report.append(describe("search (1 credit)", result, cap.raw.get("/youtube/search")))
+        entry = describe("search (1 credit)", result, cap.raw.get("/youtube/search"))
+        entry.pop("first_item", None)
+        entry["total_results"] = ((cap.raw.get("/youtube/search") or {}).get("data") or {}).get("totalResults")
+        entry["creators"] = [f"{c.display_name} ({c.handle}, {c.subscribers} subs)" for c in result.data or []]
+        report.append(entry)
 
     if args.niches:
         words = [w.strip().lower() for w in args.niches.split(",") if w.strip()]

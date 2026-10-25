@@ -9,7 +9,10 @@ Legend: ✅ verified (source given) · ⚠️ unverified · ⛔ blocked/disabled
 ## CreatorDB — primary discovery
 
 Verified 2026-10-25 against CreatorDB's official OpenAPI 3.1 spec (`docs.creatordb.app/api-v3.yaml`) and the
-credit, field-cost and search-filter pages. Live behavior is checked with `scripts/rpi_verify_creatordb.py`.
+credit, field-cost and search-filter pages, then **checked live the same day** (`--probe` on one channel: all
+seven endpoints returned the mapped fields, 39 credits, matching the documented costs). Responses also carry
+fields the spec omits (`hasEmail`, `isAgencyRepresented`, `isPodcast`, `joinedDate`, `totalViews`;
+`videoPrice`/`shortsPrice` media-value estimates; `detectedBrandNamesByVideo`), not used yet.
 
 | Item | Status | Detail |
 |---|---|---|

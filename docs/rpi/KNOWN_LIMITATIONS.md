@@ -2,8 +2,8 @@
 
 ## External blockers (need access or a decision)
 
-1. **CreatorDB not yet checked live.** Endpoints, fields and credits match CreatorDB's official spec; run
-   `scripts/rpi_verify_creatordb.py` with the key before the first discovery run. Search results are sparse
+1. **CreatorDB search relevance unproven.** Endpoints, fields and credits match the official spec and a live
+   probe. Keywords are matched as hashtags, which may miss creators who don't tag. Search results are sparse
    (id, handle, name, subscribers), so language, country and activity are unknown until a profile or content
    call. Competitor-sponsorship discovery needs `/sponsor/creators`, which is not called yet.
 2. **CreatorDB publishes no API terms.** Scoring from CreatorDB data stays off until
