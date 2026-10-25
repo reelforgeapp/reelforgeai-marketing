@@ -87,33 +87,34 @@ def template_draft(ctx: DraftContext) -> tuple[str, str]:
     videos = citable_videos(ctx)
     video = videos[0] if videos else None
     subject = f"Partnership idea for your {_topic(ctx)} content"
-    lines = [f"Hi {name},", ""]
+    # One idea per paragraph, separated by blank lines; the HTML version
+    # (rpi.outreach.sender.render_html) keeps the same paragraphs.
+    paragraphs = [f"Hi {name},"]
     if ctx.prior_contact_month:
-        lines.append(f"We emailed you about ReelForge AI in {ctx.prior_contact_month}, so this is one short "
-                     "follow-up with specific terms.")
-        if video:
-            lines.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does.")
+        paragraphs.append(f"We emailed you about ReelForge AI in {ctx.prior_contact_month}, so this is one short "
+                          "follow-up with specific terms.")
+    intro = []
+    if video and ctx.prior_contact_month:
+        intro.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does.")
     elif video:
-        lines.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does, which is why I'm reaching out.")
-    lines.append(
-        "ReelForge AI turns a prompt or niche into finished short-form videos, including script, visuals, "
-        "voiceover, captions and scheduled publishing."
-    )
+        intro.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does, which is why I'm reaching out.")
+    intro.append("ReelForge AI turns a prompt or niche into finished short-form videos, including script, visuals, "
+                 "voiceover, captions and scheduled publishing.")
+    paragraphs.append(" ".join(intro))
     if ctx.proposition == "affiliate partnership":
-        lines.append(f"Our affiliate program pays {ctx.commission_rate_pct}% recurring commission {ctx.commission_duration_text}.")
+        offer = [f"Our affiliate program pays {ctx.commission_rate_pct}% recurring commission {ctx.commission_duration_text}."]
     else:
-        lines.append(
-            f"We'd like to discuss a sponsored integration, and our affiliate program "
-            f"({ctx.commission_rate_pct}% recurring {ctx.commission_duration_text}) can be part of it."
-        )
-    for brand in ctx.competitor_deals:
-        lines.append(f"One of your recent videos was sponsored by {brand}. Do you have a category exclusivity with "
-                     f"{brand}, and if so, when does it end?")
+        offer = [f"We'd like to discuss a sponsored integration, and our affiliate program "
+                 f"({ctx.commission_rate_pct}% recurring {ctx.commission_duration_text}) can be part of it."]
+    offer += [f"One of your recent videos was sponsored by {brand}. Do you have a category exclusivity with "
+              f"{brand}, and if so, when does it end?" for brand in ctx.competitor_deals]
+    paragraphs.append(" ".join(offer))
     if ctx.request_audience_data:
-        lines.append("If you're open to it, a recent screenshot of your audience geography and age breakdown would help us propose fair terms.")
-    lines += ["", f"Would you be open to a short call or a reply with your current sponsorship rates?", "",
-              f"Program details: {AFFILIATE_INFO_URL}", "", ctx.sender_name]
-    return subject, "\n".join(lines)
+        paragraphs.append("If you're open to it, a recent screenshot of your audience geography and age breakdown "
+                          "would help us propose fair terms.")
+    paragraphs += ["Would you be open to a short call or a reply with your current sponsorship rates?",
+                   f"Program details: {AFFILIATE_INFO_URL}", ctx.sender_name]
+    return subject, "\n\n".join(paragraphs)
 
 
 def draft_tool() -> dict:
