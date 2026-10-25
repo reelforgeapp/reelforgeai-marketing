@@ -226,6 +226,8 @@ const views = {
         card("Subscribers", num(snap.subscribers), snap.provider ? tag(snap.measurement, snap.provider) : null),
         card("Recommendation", q ? pill(q.recommendation) : "—"),
         card("Score / confidence", q ? `${(q.overall ?? 0).toFixed?.(2) ?? q.overall} / ${Number(q.confidence).toFixed(2)}` : "—")),
+      p.partner_scout_history ? h("div", { class: "notice" }, p.partner_scout_history.summary +
+        ". Drafts for this creator are written as a follow-up.") : null,
       q?.components?.commercial_fit?.flags?.length
         ? h("div", { class: "notice" }, q.components.commercial_fit.flags.map(f => f[0].toUpperCase() + f.slice(1)).join("; ")) : null,
       panel("Identity and channels", table([{ label: "Platform", key: "platform" }, { label: "Account id", key: "platform_account_id" },
@@ -365,6 +367,7 @@ const views = {
       const subject = h("input", { value: d.subject, size: 80 }), body = h("textarea", {}); body.value = d.body_text;
       detail.replaceChildren(panel(`Draft for ${d.display_name} (${d.status})`,
         d.validation?.ok ? null : h("div", { class: "notice" }, "Validation: " + (d.validation?.errors || []).join("; ")),
+        d.grounding?.prior_contact ? h("div", { class: "notice" }, d.grounding.prior_contact.summary) : null,
         h("p", { class: "muted" }, "Grounded in: " + (d.grounding?.videos || []).map(v => v.title).join(" · ")),
         field("Subject", subject), field("Body", body),
         h("div", { class: "row" },

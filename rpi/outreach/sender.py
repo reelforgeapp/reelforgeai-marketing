@@ -12,7 +12,8 @@ Gates (all enforced in code, independent of any model output):
   4. recipient comes from a stored contact record for this creator
   5. recipient and creator are not suppressed (RPI + Partner Scout opt-outs)
   6. creator in an outreach-eligible CRM status
-  7. no message to this creator or address within min_days_between_contacts
+  7. no message to this creator or address within min_days_between_contacts,
+     counting Partner Scout's emails (marketing_prospects.last_contacted_at)
   8. daily send limit not reached
   9. CAN-SPAM: sender identity and postal address configured
  10. exactly-once: status moves approved → sending via compare-and-swap
@@ -24,12 +25,14 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 
 import structlog
 
 from app.config import get_settings
 from rpi.core.audit import audit
+from rpi.crm.contact_history import partner_scout_history
 from rpi.crm.pipeline import OUTREACH_ELIGIBLE, Status, transition
 from rpi.crm.suppression import is_suppressed
 from rpi.outreach.drafts import regrounding_from_row
@@ -108,6 +111,10 @@ async def check_gates(conn, draft: dict, contact: Optional[dict], settings_row: 
     )
     if recent:
         reasons.append(f"already contacted within {days} days")
+    prior = await partner_scout_history(conn, draft["creator_id"], email=email)
+    if prior and prior.last_contacted_at and prior.last_contacted_at > datetime.now(timezone.utc) - timedelta(days=days):
+        reasons.append(f"Partner Scout emailed this creator on {prior.last_contacted_at.date().isoformat()}, "
+                       f"within {days} days")
 
     sent_today = await conn.fetchval(
         "SELECT COUNT(*) FROM rpi_outreach_drafts WHERE status IN ('sent', 'sending') AND sent_at >= date_trunc('day', NOW())"

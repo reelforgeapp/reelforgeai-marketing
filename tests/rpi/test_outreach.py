@@ -209,3 +209,77 @@ def test_template_skips_income_and_competitor_titles_and_greets_the_channel():
     assert '"Kling 4 is FINALLY Here"' in body and "$120" not in body and "Invideo" not in body
     assert body.startswith("Hi Atomic Gains,") and subject == "Partnership idea for your AI video tools content"
     assert validate_draft(subject, body, build_grounding(ctx, None)).ok
+
+
+# --------------------------------------------------------------------------
+# Partner Scout email history
+# --------------------------------------------------------------------------
+
+
+async def add_prospect(pool, *, channel=None, email=None, sent=3, days_ago=60, status="contacted"):
+    from datetime import datetime, timedelta
+
+    last = datetime.utcnow() - timedelta(days=days_ago)  # Partner Scout stores naive UTC
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """INSERT INTO marketing_prospects (full_name, email, youtube_channel_id, status, total_emails_sent,
+                                                first_contacted_at, last_contacted_at)
+               VALUES ('Sam', $1, $2, $3, $4, $5, $6) RETURNING id""",
+            email, channel, status, sent, last - timedelta(days=14), last)
+
+
+@pytest.mark.db
+async def test_partner_scout_history_matches_channel_legacy_id_and_email(pool):
+    from rpi.crm.contact_history import partner_scout_history
+
+    did, cid = await seed_draft(pool)
+    async with pool.acquire() as conn:
+        assert await partner_scout_history(conn, cid) is None
+        channel = await conn.fetchval("SELECT platform_account_id FROM rpi_creator_social_accounts WHERE creator_id = $1", cid)
+    await add_prospect(pool, channel=channel, days_ago=40)
+    async with pool.acquire() as conn:
+        prior = await partner_scout_history(conn, cid)
+        assert prior.emails_sent == 3 and prior.status == "contacted" and prior.last_contacted_at.tzinfo is not None
+        assert "3 time(s)" in prior.summary()
+        other = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('Other') RETURNING id")
+        assert await partner_scout_history(conn, other) is None
+        assert (await partner_scout_history(conn, other, email="nobody@example.com")) is None
+    pid = await add_prospect(pool, email="lee@example.com", sent=1, days_ago=10)
+    async with pool.acquire() as conn:
+        assert (await partner_scout_history(conn, other, email="LEE@example.com")).emails_sent == 1
+        await conn.execute("UPDATE rpi_creators SET legacy_prospect_id = $2 WHERE id = $1", other, pid)
+        assert (await partner_scout_history(conn, other)).emails_sent == 1
+
+
+@pytest.mark.db
+async def test_send_gate_counts_recent_partner_scout_email(pool):
+    await enable_sending(pool)
+    did, cid = await seed_draft(pool, email="recent@example.com")
+    await add_prospect(pool, email="recent@example.com", days_ago=5)
+    sender = FakeSender()
+    result = await send_draft(pool, did, "approver:a", sender, public_base_url="https://rpi.test")
+    assert not result["sent"] and sender.sent == []
+    assert any("Partner Scout emailed this creator" in r for r in result["reasons"])
+
+
+@pytest.mark.db
+async def test_old_partner_scout_email_does_not_block_and_shows_on_profile(pool):
+    from rpi.storage.creators import creator_profile
+
+    await enable_sending(pool)
+    did, cid = await seed_draft(pool, email="old@example.com")
+    await add_prospect(pool, email="old@example.com", days_ago=200)
+    async with pool.acquire() as conn:
+        profile = await creator_profile(conn, cid)
+    assert profile["partner_scout_history"]["emails_sent"] == 3
+    result = await send_draft(pool, did, "approver:a", FakeSender(), public_base_url="https://rpi.test")
+    assert result["sent"], result
+
+
+def test_template_follow_up_acknowledges_earlier_contact_without_claiming_no_reply():
+    c = DraftContext(**{**ctx().__dict__, "prior_contact_month": "February 2026"})
+    subject, body = template_draft(c)
+    assert "We emailed you about ReelForge AI in February 2026" in body
+    assert "reaching out" not in body and "hear back" not in body
+    assert validate_draft(subject, body, build_grounding(c, None)).ok
+    assert "We emailed you" not in template_draft(ctx())[1]

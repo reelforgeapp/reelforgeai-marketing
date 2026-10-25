@@ -18,7 +18,10 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
 5. **Review**: creator profile → evidence, provenance tags, missing data, policy exclusions, risk screen.
 6. **Compare** shortlisted creators, then model the economics in the **Profitability Lab** with the creator's
    expected views and requested fee (add the fee as a `sponsorship_request` note so scoring can use it).
-7. **Outreach**: *Draft outreach* → edit → approver *Approve* → *Send* (only if sending is enabled).
+7. **Outreach**: *Draft outreach* → edit → approver *Approve* → *Send* (only if sending is enabled). If Partner
+   Scout already emailed the creator, the creator page and the draft say so, the draft is written as a follow-up,
+   and sending waits until `min_days_between_contacts` after Partner Scout's last email. Partner Scout does not
+   record replies; check the inbox before following up.
 8. **Negotiate**: CRM transitions + `negotiation` notes; create the deal; mark it `agreed` only with a contract
    reference when required.
 9. **Launch**: create the campaign (referral code + UTM), record the influencer fee as a campaign cost with the
