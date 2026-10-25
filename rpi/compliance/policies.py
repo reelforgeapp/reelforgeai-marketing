@@ -116,13 +116,15 @@ POLICIES: dict[str, ProviderPolicy] = {
         cache_ttl_days=14,
         deletion_on_request_days=30,
         attribution_required=False,
-        sources=("https://docs.creatordb.app/",),
+        sources=("https://docs.creatordb.app/", "https://docs.creatordb.app/api-v3.yaml",
+                 "https://creatordb.app/privacy-policy/"),
         verified=False,
         verified_on=None,
         notes=(
-            "Terms of service not yet reviewed. Storage limit, AI analysis and derived scoring permissions "
-            "are conservative placeholders. Scoring uses CreatorDB fields only when "
-            "rpi_creatordb_scoring_permitted is set after a terms review.",
+            "CreatorDB publishes no API terms of service (checked 2026-10-25; its privacy policy refers to "
+            "Terms of Service that are not online), so the customer agreement governs. Storage limit, AI "
+            "analysis and derived scoring permissions are conservative placeholders. Scoring uses CreatorDB "
+            "fields only when rpi_creatordb_scoring_permitted is set after that agreement is reviewed.",
         ),
     ),
     "sparktoro": ProviderPolicy(

@@ -61,7 +61,7 @@ sub-agent audit and are not re-verified.
 | Directive module | Status | Notes |
 |---|---|---|
 | providers (contract, resilience, metering) | **Built** | Normalized contract, explicit UNSUPPORTED, retries with jitter, Retry-After, circuit breaker, token bucket, timeouts, schema validation, cost metering, cache, request log |
-| CreatorDB adapter | **Built, live-unverified** | Only `/youtube/profile` is verified; other endpoints are disabled until `scripts/rpi_verify_creatordb.py` confirms them |
+| CreatorDB adapter | **Built to the official spec, live check pending** | All used endpoints, fields and credit costs match CreatorDB's OpenAPI spec; `scripts/rpi_verify_creatordb.py` confirms them with the key |
 | SparkToro adapter | **Built, live-unverified** | Endpoints/credits verified from docs; response field names unverified |
 | YouTube Data adapter | **Built** (verification only) | Never feeds scores |
 | YouTube Analytics OAuth | **Built, disabled** | Pending legal review of Dev Policies III.E.3(b); report retrieval not implemented |
@@ -92,7 +92,7 @@ sub-agent audit and are not re-verified.
 | Milestone | Scope | Status | Definition of done → evidence |
 |---|---|---|---|
 | 0 Audit | Architecture, reuse, API matrix, risks | **Done** (API matrix partly unverified) | This document + API_INTEGRATIONS.md |
-| 1 Core discovery | Schema, CreatorDB adapter, metering, search, identity, dedupe, prelim filter, dashboard | **Code done; live use blocked** | Works end to end on the fixture provider (tests). Real search needs a CreatorDB key + endpoint verification |
+| 1 Core discovery | Schema, CreatorDB adapter, metering, search, identity, dedupe, prelim filter, dashboard | **Code done; live use blocked** | Works end to end on the fixture provider (tests). Real search needs the CreatorDB key and a live check |
 | 2 AI research & qualification | Claude classification, evidence, audience suitability, confidence, sponsorships, transcript fallback | **Code done; live Claude unverified** | Fake-model tests pass; needs `ANTHROPIC_API_KEY` and a labeled benchmark |
 | 3 Audience intelligence | SparkToro, audience-first, provenance, provider value comparison | **Code done; live unverified** | `strategy_breakdown.audience_first.not_found_by_other_strategies` per run |
 | 4 Commercial engine | Pricing scenarios, contribution model, break-even, deals, CRM, drafts, approvals | **Done** | Tests + Profitability Lab |
@@ -104,8 +104,8 @@ sub-agent audit and are not re-verified.
 
 1. **Decisions** (owner: ReelForge): affiliate commission duration; whether Partner Scout keeps autonomous sending;
    fixes for risks 1, 2, 4 and 5.
-2. **Provision**: CreatorDB plan + key → run `scripts/rpi_verify_creatordb.py` → fix `CREATORDB_FIELDS` → set
-   `CREATORDB_VERIFIED_ENDPOINTS`. Review CreatorDB terms → set `RPI_CREATORDB_SCORING_PERMITTED`.
+2. **Provision**: CreatorDB key → run `scripts/rpi_verify_creatordb.py` → fix any mapping drift. Review the
+   CreatorDB customer agreement → set `RPI_CREATORDB_SCORING_PERMITTED`.
 3. **Deploy** migration 005 (DEPLOYMENT_RUNBOOK.md), create principals, set budgets.
 4. **Label** 50–100 benchmark channels (`docs/rpi/benchmark_template.csv`) → `scripts/rpi_benchmark.py --report`.
 5. **Product integration** (reelforge-ai): call `/attribution/identify` at signup and `/attribution/milestone`

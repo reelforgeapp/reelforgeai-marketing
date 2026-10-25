@@ -175,7 +175,7 @@ class DiscoveryEngine:
         search_strategies = [s for s in request.strategies if s in ("niche", "competitor_sponsorship", "emerging")]
         per_limit = max(1, request.max_candidates // max(1, len(search_strategies) or 1))
         if search_strategies and primary is None:
-            warnings.append("no configured provider supports creator search (CreatorDB search endpoint unverified or no key)")
+            warnings.append("no configured provider supports creator search (CREATORDB_API_KEY not set)")
 
         for strategy in search_strategies:
             if primary is None:

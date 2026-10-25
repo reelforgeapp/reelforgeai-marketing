@@ -1,18 +1,39 @@
 {
-  "_comment": "Sanitized fixture shaped after the documented POST /youtube/profile request (body {channelId}). Field names other than channelId are PROVISIONAL (see rpi/providers/creatordb.py CREATORDB_FIELDS) until verified with scripts/rpi_verify_creatordb.py.",
+  "_comment": "Sanitized fixture in the shape of POST /youtube/profile from CreatorDB's OpenAPI spec (docs.creatordb.app/api-v3.yaml, 2026-10-25). Values are invented.",
   "data": {
     "channelId": "UCFIXTURE000001",
-    "channelName": "Example Faceless Lab",
-    "customUrl": "@examplefacelesslab",
-    "description": "Faceless YouTube automation and AI Shorts tutorials.",
-    "country": "US",
-    "language": "en",
-    "subscribers": 48200,
-    "avgViews": 9100.5,
-    "engagementRate": 0.041,
-    "totalVideos": 212,
-    "lastPublishTime": "2026-10-20T15:00:00Z",
-    "videosLast90Days": 14,
-    "categories": ["Education", "Technology"]
-  }
+    "uniqueId": "@examplefacelesslab",
+    "displayName": "Example Faceless Lab",
+    "categoryBreakdown": [
+      {"category": "Education", "share": 0.3},
+      {"category": "Science & Technology", "share": 0.7}
+    ],
+    "avatarUrl": "https://yt3.example.invalid/avatar.jpg",
+    "bio": "Faceless YouTube automation and AI Shorts tutorials.",
+    "isVerified": false,
+    "hasSponsors": true,
+    "hasMemberOnlyContents": false,
+    "country": "USA",
+    "mainLanguage": "eng",
+    "languages": ["eng"],
+    "totalContents": 212,
+    "totalSubscribers": 48200,
+    "subscriberGrowth": {"g7": 0.004, "g30": 0.021, "g90": 0.07},
+    "hashtags": [{"name": "#facelessyoutube", "contentCount": 9}],
+    "topics": ["id_youtubeautomation_ScienceTechnology"],
+    "niches": ["id_aivideo_ScienceTechnology"],
+    "otherLinks": [{"title": "Website", "url": "https://example.invalid"}],
+    "lastPublishTime": 1792508400000,
+    "relatedCreators": [],
+    "lastDbUpdateTime": 1792900000000
+  },
+  "creditsUsed": 2,
+  "creditsAvailable": 973,
+  "planCreditsAvailable": 898,
+  "purchasedCreditsAvailable": 75,
+  "traceId": "fixture-trace",
+  "timestamp": 1792900000000,
+  "errorCode": "",
+  "errorDescription": "",
+  "success": true
 }

@@ -8,23 +8,35 @@ Legend: ✅ verified (source given) · ⚠️ unverified · ⛔ blocked/disabled
 
 ## CreatorDB — primary discovery
 
+Verified 2026-10-25 against CreatorDB's official OpenAPI 3.1 spec (`docs.creatordb.app/api-v3.yaml`) and the
+credit, field-cost and search-filter pages. Live behavior is checked with `scripts/rpi_verify_creatordb.py`.
+
 | Item | Status | Detail |
 |---|---|---|
-| Base URL | ✅ | `https://apiv3.creatordb.app` (docs index) |
-| Auth | ✅ / ⚠️ | Example uses header `api-key: <key>`; the same page also says "authorization header". Adapter sends `api-key`; the verify script tries both |
-| Profile | ✅ | `POST /youtube/profile` body `{"channelId": "UC…"}` (authentication page example) |
-| Methods / body | ✅ | GET and POST; POST requires a JSON body |
-| Pagination | ✅ | ≤100 results per call, `offset` in body (check off-by-one live) |
-| Rate limit | ✅ | Up to 6,000 calls/minute, depends on credits |
-| Search, audience, sponsorship, videos, subtitles, contacts | ⚠️ ⛔ | Paths provisional (`/youtube/search`, …); **disabled** until listed in `CREATORDB_VERIFIED_ENDPOINTS` |
-| Response field names | ⚠️ | Mapped in `CREATORDB_FIELDS` (only `channelId` verified) |
-| Credits per endpoint | ⚠️ | Assumed 1 credit/call; set `CREATORDB_USD_PER_CREDIT` from your plan |
-| Pricing | ⚠️ | Purchased in the API dashboard; no amounts in the docs index |
-| Terms (storage, AI analysis, derived scoring) | ⚠️ ⛔ | Not reviewed. Scoring from CreatorDB data is **off** until `RPI_CREATORDB_SCORING_PERMITTED=true` |
+| Base URL / auth | ✅ | `https://apiv3.creatordb.app`, header `api-key: <key>`. No sandbox: every call uses real credits |
+| `GET /usage` | ✅ | Free. Credits available, plan vs purchased, the key's spend limit. Used by the health check |
+| `POST /youtube/search` | ✅ | Body `{filters:[{filterName, op, value}], pageSize ≤100, offset, sortBy, desc}`; response `data.creatorList`, `hasNextPage`, `nextOffset`. **1 credit per 10 filters per page, charged even with no matches.** Results carry only `channelId`, `uniqueId`, `displayName`, `avatarUrl`, `totalSubscribers` |
+| `POST /youtube/profile` | ✅ | 2 credits. `bio`, `country` (ISO alpha-3), `mainLanguage` (ISO 639-3), `totalSubscribers`, `totalContents`, `lastPublishTime` (ms), `categoryBreakdown`, `topics`, `niches`, `hashtags`, `otherLinks` |
+| `POST /youtube/performance` | ✅ | 3 credits. `videosPerformanceRecent` (last 20 videos: views avg/median, engagement), `contentCountByDays` |
+| `POST /youtube/content-detail` | ✅ | 3 credits. `recentVideos[]` (with `isSponsored`) and `recentShorts[]`: `contentId`, `title`, `description`, `publishTime`, `length`, views/likes/comments |
+| `POST /youtube/audience` | ✅ | 10 credits. `audienceLocations[{country, share}]`, `audienceGender{maleRatio, femaleRatio}`, `audienceAgeBreakdown[{ageRange, share}]`, `audienceAvgAge` |
+| `POST /youtube/sponsorship` | ✅ | 5 credits. `sponsorList[{brandName, brandId (site URL or id), sponsoredVideos[]}]` |
+| `POST /youtube/contact` | ✅ | 15 credits, **charged only when at least one email is returned**. `emails[]` |
+| Not found | ✅ | A direct query that returns nothing costs 0 credits |
+| Errors | ✅ | 400 `VALIDATION_ERROR`; 403 `FRACTIONAL_CALLS_NOT_ENABLED`; 429 `RATE_LIMIT_EXCEEDED` (retried) or `QUOTA_EXCEEDED` (credits exhausted, not retried); 200 with `success:false` is an error |
+| Costs | ✅ | Each response reports `creditsUsed`, which is settled against the budget. Set `CREATORDB_USD_PER_CREDIT` from your plan price |
+| Not used yet | — | Fractional calls (per-field billing; must be enabled on the key), search enrichment, `/youtube/performance-history`, `/youtube/subtitles/*`, `/youtube/niches` + `/youtube/topics` (1 credit each; the verify script can list niches), `/sponsor/creators` (15 credits; would power competitor-sponsorship discovery) |
+| Terms (storage, AI analysis, derived scoring) | ⚠️ ⛔ | CreatorDB publishes no API terms (the privacy policy refers to Terms of Service that are not online). Your customer agreement decides. Scoring from CreatorDB data is **off** until `RPI_CREATORDB_SCORING_PERMITTED=true` |
 
-Access requirement: CreatorDB account + API credits. **Verification task (≈5 min):**
-`CREATORDB_API_KEY=… python -m scripts.rpi_verify_creatordb --channel UC…` (1 call). Add
-`--probe-unverified --yes` to probe the provisional endpoints (may use credits).
+Search translation (`build_search_body`): keywords → `hashtags in ["#facelessyoutube", …]`; topics and niches →
+`topics`/`niches` ids; languages → `mainLanguage` (ISO 639-3); countries → `country` (alpha-3); subscriber,
+average-view and activity bounds → `totalSubscribers`, `avgRecentVideosViews`, `lastPublishTime`. Codes not in
+`rpi/providers/iso_codes.py` are reported as unapplied. Results sort by `avgRecentVideosViews` (the API default is
+alphabetical). Brand-sponsorship criteria return UNSUPPORTED rather than unrelated creators.
+
+**Verification:** `python -m scripts.rpi_verify_creatordb --channel UC…` calls `/usage` (free) and one profile
+(2 credits). `--probe --yes` calls every endpoint once (≤ 39 credits). `--niches ai,video --yes` lists niche ids
+(1 credit).
 
 ## SparkToro — selective audience-first research
 

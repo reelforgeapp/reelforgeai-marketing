@@ -1,5 +1,21 @@
 # RPI changelog
 
+## 0.1.1 — 2026-10-25
+
+### CreatorDB adapter matched to the official API
+* Endpoints, request bodies, response fields, error codes and credit costs now follow CreatorDB's OpenAPI 3.1
+  spec and credit pages. Fixed: content path (`/youtube/content-detail`, was `/youtube/videos`), search body
+  (`filters`/`pageSize`, was free-form keywords/limit), every profile field name, audience and sponsorship
+  shapes, pagination (`hasNextPage`/`nextOffset`).
+* Added `/youtube/performance` (views, engagement, uploads in 90 days) and free `/usage` (credits remaining;
+  used by the health check).
+* Costs settle from the provider-reported `creditsUsed`; not-found lookups and contact calls with no email cost 0.
+* `QUOTA_EXCEEDED` is treated as credits exhausted and never retried; `RATE_LIMIT_EXCEEDED` is retried.
+* Countries and languages are converted between CreatorDB's ISO alpha-3 / 639-3 and RPI's alpha-2 / 639-1.
+* Brand-sponsorship search returns UNSUPPORTED instead of unrelated creators until `/sponsor/creators` is added.
+* `scripts/rpi_verify_creatordb.py` rewritten: free usage check, one profile by default, `--probe` for every
+  endpoint, `--niches` to list niche ids; reads the key from a mode-600 file.
+
 ## 0.1.0 — 2026-10-25
 
 ### Audit (Milestone 0)

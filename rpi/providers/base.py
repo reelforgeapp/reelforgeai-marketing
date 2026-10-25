@@ -59,6 +59,7 @@ class CreatorSearchCriteria(BaseModel):
     platform: str = "youtube"
     keywords: list[str] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
+    niches: list[str] = Field(default_factory=list)  # provider niche ids (CreatorDB /youtube/niches)
     languages: list[str] = Field(default_factory=lambda: ["en"])
     countries: list[str] = Field(default_factory=list)
     min_subscribers: Optional[int] = None

@@ -63,12 +63,13 @@ require two different admins, so create at least two admin principals if you nee
 ## 6. Provider verification (before relying on discovery)
 
 ```bash
-CREATORDB_API_KEY=... python -m scripts.rpi_verify_creatordb --channel UC...        # 1 call
-CREATORDB_API_KEY=... python -m scripts.rpi_verify_creatordb --channel UC... --probe-unverified --yes
+python -m scripts.rpi_verify_creatordb --channel UC...              # /usage (free) + 1 profile (2 credits)
+python -m scripts.rpi_verify_creatordb --channel UC... --probe --yes  # every endpoint once (<= 39 credits)
 ```
 
-Fix `CREATORDB_FIELDS` / `ENDPOINTS` in `rpi/providers/creatordb.py` to match, set
-`CREATORDB_VERIFIED_ENDPOINTS=search,content,...`, and redeploy. Review CreatorDB's terms, then set
+The key comes from `CREATORDB_API_KEY` or `~/.config/creatordb/api_key` (mode 600). If a response's keys or
+missing fields differ from `CREATORDB_FIELDS` / `PERFORMANCE_FIELDS` in `rpi/providers/creatordb.py`, fix the
+mapping before running discovery. Review your CreatorDB customer agreement, then set
 `RPI_CREATORDB_SCORING_PERMITTED=true` if derived scoring and AI analysis are permitted.
 
 ## 7. Stripe

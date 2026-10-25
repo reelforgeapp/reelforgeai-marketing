@@ -25,8 +25,9 @@ DB tests skip, rather than fake, when PostgreSQL is unreachable.
 
 ## What the tests do not prove
 
-* **Live provider behavior.** Contract tests use fixtures shaped after the documented requests. Field names and
-  most CreatorDB/SparkToro/Supadata endpoints are unverified. Live checks: `scripts/rpi_verify_creatordb.py`.
+* **Live provider behavior.** Contract tests use fixtures shaped after the documented requests. CreatorDB
+  fixtures follow its official OpenAPI spec; SparkToro/Supadata field names are unverified. Live checks:
+  `scripts/rpi_verify_creatordb.py`.
 * **Claude output quality.** A fake model is used. Classification accuracy needs the labeled benchmark.
 * **Stripe payload variations across API versions** beyond the fields used.
 * **The product integration**, which lives in another repository.

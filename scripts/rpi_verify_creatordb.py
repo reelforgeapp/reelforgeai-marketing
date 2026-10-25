@@ -1,19 +1,17 @@
 """
 Verify the CreatorDB adapter against the live API.
 
-    python -m scripts.rpi_verify_creatordb --channel UC83AILrMkQSzeGbN0rJV7JA
-    python -m scripts.rpi_verify_creatordb --channel UC... --probe-unverified --yes
+    python -m scripts.rpi_verify_creatordb --channel UC...                   # /usage (free) + 1 profile (2 credits)
+    python -m scripts.rpi_verify_creatordb --channel UC... --probe --yes     # every endpoint once (<= 39 credits)
+    python -m scripts.rpi_verify_creatordb --niches ai,video,youtube --yes   # list matching niche ids (1 credit)
 
-Default run: ONE POST /youtube/profile call (the endpoint documented in the
-CreatorDB authentication page). It prints the response's top-level keys and
-which CREATORDB_FIELDS mappings matched, so the mapping in
-rpi/providers/creatordb.py can be corrected and marked verified.
+The key is read from CREATORDB_API_KEY, or from the file named by
+--key-file / CREATORDB_API_KEY_FILE (default ~/.config/creatordb/api_key).
 
---probe-unverified also calls each provisional endpoint once. These calls may
-consume credits; they run only with --yes. Endpoints that return 2xx with the
-expected shape can then be listed in CREATORDB_VERIFIED_ENDPOINTS.
-
-Output never includes the API key. Responses are not saved to disk.
+Each call goes through CreatorDBAdapter, so this checks the real request
+bodies and field mappings. Output shows response keys, mapped fields found or
+missing, and creditsUsed / creditsAvailable. It never prints the key or
+contact emails, and saves nothing to disk.
 """
 
 from __future__ import annotations
@@ -25,68 +23,123 @@ import os
 import sys
 from pathlib import Path
 
-import httpx
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rpi.providers.creatordb import CREATORDB_FIELDS, ENDPOINTS  # noqa: E402
-from rpi.providers.mapping import extract  # noqa: E402
+from rpi.providers.base import CreatorSearchCriteria  # noqa: E402
+from rpi.providers.creatordb import CreatorDBAdapter, topic_label  # noqa: E402
+
+DEFAULT_KEY_FILE = Path.home() / ".config" / "creatordb" / "api_key"
+PROBE_CREDITS = {"profile": 2, "performance": 3, "content": 3, "audience": 10, "sponsorship": 5,
+                 "contact": 15, "search": 1}
 
 
-def summarize(payload) -> dict:
-    record = payload.get("data", payload) if isinstance(payload, dict) else payload
-    if isinstance(record, list):
-        record = record[0] if record else {}
-    values, missing = extract(record if isinstance(record, dict) else {}, CREATORDB_FIELDS)
-    return {
-        "top_level_keys": sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
-        "record_keys": sorted(record.keys())[:60] if isinstance(record, dict) else None,
-        "mapped_fields_found": sorted(values),
-        "mapped_fields_missing": missing,
+def load_key(key_file: str | None) -> str:
+    key = os.environ.get("CREATORDB_API_KEY", "").strip()
+    if key:
+        return key
+    path = Path(key_file or os.environ.get("CREATORDB_API_KEY_FILE") or DEFAULT_KEY_FILE).expanduser()
+    if not path.exists():
+        sys.exit(f"no key: set CREATORDB_API_KEY or create {path}")
+    if path.stat().st_mode & 0o077:
+        sys.exit(f"{path} is readable by other users; run: chmod 600 {path}")
+    return path.read_text().strip()
+
+
+class Capture:
+    """Keep each raw response so its keys can be compared with the mapping."""
+
+    def __init__(self, adapter: CreatorDBAdapter):
+        self.raw: dict[str, dict] = {}
+        self._orig = adapter.http.request
+        adapter.http.request = self.request
+
+    async def request(self, method, path, **kw):
+        response = await self._orig(method, path, **kw)
+        try:
+            self.raw[path] = response.json()
+        except ValueError:
+            self.raw[path] = {}
+        return response
+
+
+def describe(name: str, result, raw: dict | None, *, hide_values: bool = False) -> dict:
+    data = (raw or {}).get("data")
+    out = {
+        "endpoint": name,
+        "status": result.status.value,
+        "error": result.error_code and f"{result.error_code}: {result.error}",
+        "credits_used": (raw or {}).get("creditsUsed"),
+        "credits_available": (raw or {}).get("creditsAvailable"),
+        "response_data_keys": sorted(data)[:60] if isinstance(data, dict) else type(data).__name__,
+        "missing_fields": result.missing_fields,
+        "unapplied_criteria": result.unapplied_criteria or None,
     }
-
-
-async def call(client, base, key, header, endpoint, body):
-    spec = ENDPOINTS[endpoint]
-    resp = await client.request(spec.method, base + spec.path, json=body, headers={header: key, "content-type": "application/json"})
-    out = {"endpoint": endpoint, "path": spec.path, "status": resp.status_code}
-    try:
-        payload = resp.json()
-        out["summary"] = summarize(payload) if resp.status_code < 300 else {"error_body_keys": sorted(payload)[:10] if isinstance(payload, dict) else None}
-    except json.JSONDecodeError:
-        out["summary"] = {"non_json": resp.text[:120]}
-    return out
+    value = result.data
+    if hide_values:
+        out["items"] = len(value or [])
+    elif isinstance(value, list):
+        out["items"] = len(value)
+        out["first_item"] = value[0].model_dump(mode="json", exclude={"provenance"}) if value else None
+    elif hasattr(value, "model_dump"):
+        out["normalized"] = value.model_dump(mode="json", exclude={"provenance"})
+    elif value is not None:
+        out["normalized"] = value
+    return {k: v for k, v in out.items() if v not in (None, [], "")}
 
 
 async def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--channel", required=True)
-    ap.add_argument("--probe-unverified", action="store_true")
-    ap.add_argument("--yes", action="store_true", help="confirm calls that may consume credits")
+    ap.add_argument("--channel", help="YouTube channel id (UC...) to look up")
+    ap.add_argument("--probe", action="store_true", help="call every endpoint once (uses credits)")
+    ap.add_argument("--niches", help="comma-separated words; list niche ids containing them (1 credit)")
+    ap.add_argument("--yes", action="store_true", help="confirm calls that use credits")
+    ap.add_argument("--key-file")
     ap.add_argument("--base-url", default=os.environ.get("CREATORDB_BASE_URL", "https://apiv3.creatordb.app"))
     args = ap.parse_args()
-    key = os.environ.get("CREATORDB_API_KEY")
-    if not key:
-        sys.exit("CREATORDB_API_KEY is not set")
-    async with httpx.AsyncClient(timeout=30) as client:
-        results = []
-        for header in ("api-key", "Authorization"):
-            r = await call(client, args.base_url, key if header == "api-key" else f"Bearer {key}", header, "profile",
-                           {"channelId": args.channel})
-            r["auth_header"] = header
-            results.append(r)
-            if r["status"] < 300:
-                break
-        if args.probe_unverified:
-            if not args.yes:
-                sys.exit("--probe-unverified may consume credits; re-run with --yes to confirm")
-            header = results[-1]["auth_header"]
-            hv = key if header == "api-key" else f"Bearer {key}"
-            for ep in [e for e, s in ENDPOINTS.items() if not s.verified]:
-                body = {"channelId": args.channel} if ep != "search" else {"keywords": ["faceless youtube"], "limit": 5, "offset": 0}
-                r = await call(client, args.base_url, hv, header, ep, body)
-                results.append(r)
-    print(json.dumps(results, indent=2))
+    if (args.probe or args.niches) and not args.yes:
+        sys.exit("--probe and --niches use credits; re-run with --yes to confirm")
+
+    adapter = CreatorDBAdapter(load_key(args.key_file), base_url=args.base_url, rate_per_second=2)
+    cap = Capture(adapter)
+    report = []
+
+    usage = await adapter.get_usage_costs()
+    report.append(describe("usage (free)", usage, cap.raw.get("/usage")))
+    if not usage.ok:
+        print(json.dumps(report, indent=2, default=str))
+        sys.exit(1)
+
+    if args.channel:
+        calls = [("profile", adapter.get_creator_profile, "/youtube/profile")]
+        if args.probe:
+            calls += [("performance", adapter.get_creator_performance, "/youtube/performance"),
+                      ("content", adapter.get_creator_content, "/youtube/content-detail"),
+                      ("audience", adapter.get_audience_demographics, "/youtube/audience"),
+                      ("sponsorship", adapter.get_sponsorship_history, "/youtube/sponsorship"),
+                      ("contact", adapter.get_creator_contacts, "/youtube/contact")]
+        for name, fn, path in calls:
+            result = await fn(args.channel)
+            report.append(describe(f"{name} (<= {PROBE_CREDITS[name]} credits)", result, cap.raw.get(path),
+                                   hide_values=name == "contact"))
+    if args.probe:
+        result = await adapter.search_creators(CreatorSearchCriteria(
+            keywords=["faceless youtube", "youtube automation"], min_subscribers=10_000, max_subscribers=150_000,
+            limit=5))
+        report.append(describe("search (1 credit)", result, cap.raw.get("/youtube/search")))
+
+    if args.niches:
+        words = [w.strip().lower() for w in args.niches.split(",") if w.strip()]
+        resp = await adapter.http.request("GET", "/youtube/niches")
+        payload = resp.json()
+        rows = [n for n in payload.get("data") or [] if isinstance(n, dict)]
+        hits = [{"id": n.get("id"), "label": topic_label(n.get("id", "")), "name": n.get("name"),
+                 "category": n.get("category"), "channels": n.get("channelCount")}
+                for n in rows if any(w in f"{n.get('id', '')} {n.get('name', '')}".lower() for w in words)]
+        hits.sort(key=lambda n: -(n["channels"] or 0))
+        report.append({"endpoint": "niches (1 credit)", "credits_used": payload.get("creditsUsed"),
+                       "total_niches": len(rows), "matches": hits[:80]})
+
+    print(json.dumps(report, indent=2, default=str))
 
 
 if __name__ == "__main__":

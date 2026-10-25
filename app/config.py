@@ -104,8 +104,8 @@ class Settings(BaseSettings):
     creatordb_base_url: str = Field(default="https://apiv3.creatordb.app")
     creatordb_usd_per_credit: float = Field(default=0.0)  # set from your CreatorDB plan
     creatordb_rate_per_second: float = Field(default=5.0)
-    # Comma list of endpoint keys confirmed with scripts/rpi_verify_creatordb.py
-    # (search,audience,sponsorship,content,contact). "profile" is verified from docs.
+    # Endpoints in CreatorDB's official spec are enabled by default. List any
+    # other endpoint key here only after scripts/rpi_verify_creatordb.py confirms it.
     creatordb_verified_endpoints: str = Field(default="")
     # Set only after reviewing CreatorDB terms for derived scoring / AI analysis.
     rpi_creatordb_scoring_permitted: bool = Field(default=False)

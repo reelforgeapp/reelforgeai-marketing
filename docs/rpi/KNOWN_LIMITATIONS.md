@@ -2,10 +2,12 @@
 
 ## External blockers (need access or a decision)
 
-1. **No CreatorDB key or verified endpoints.** Real discovery cannot run until a key exists and
-   `scripts/rpi_verify_creatordb.py` confirms the search/content/audience/sponsorship/contact endpoints and
-   field names. Until then only `/youtube/profile` is enabled.
-2. **CreatorDB terms not reviewed.** Scoring from CreatorDB data stays off until `RPI_CREATORDB_SCORING_PERMITTED`.
+1. **CreatorDB not yet checked live.** Endpoints, fields and credits match CreatorDB's official spec; run
+   `scripts/rpi_verify_creatordb.py` with the key before the first discovery run. Search results are sparse
+   (id, handle, name, subscribers), so language, country and activity are unknown until a profile or content
+   call. Competitor-sponsorship discovery needs `/sponsor/creators`, which is not called yet.
+2. **CreatorDB publishes no API terms.** Scoring from CreatorDB data stays off until
+   `RPI_CREATORDB_SCORING_PERMITTED`, which should follow a review of your CreatorDB customer agreement.
 3. **SparkToro and Supadata terms unread; response shapes unverified.**
 4. **Claude prices unverified.** Spend reports use the configured per-token prices.
 5. **YouTube Analytics display restriction** (Dev Policies III.E.3(b)) needs legal review; the integration is off.
