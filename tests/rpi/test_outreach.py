@@ -177,3 +177,35 @@ async def test_tampered_draft_fails_revalidation_at_send(pool):
         await conn.execute("UPDATE rpi_outreach_drafts SET body_text = body_text || ' Creators earn $5,000/month!' WHERE id = $1", did)
     r = await send_draft(pool, did, "approver:a", FakeSender(), public_base_url="https://rpi.test")
     assert not r["sent"] and any("fails validation" in x for x in r["reasons"])
+
+
+def test_template_asks_about_exclusivity_for_recent_competitor_deals():
+    from rpi.outreach.drafts import DraftContext, build_grounding, template_draft
+    from rpi.outreach.validator import validate_draft
+
+    ctx = DraftContext(creator_id="c", creator_name="Mark", videos=[{"ref": "v", "title": "AI Edited My Video", "url": None}],
+                       primary_labels=["ai_video_tools"], capabilities=[], commission_rate_pct="30",
+                       commission_duration_text="for the lifetime of referred customers", proposition="paid sponsorship",
+                       request_audience_data=False, sender_name="Larry", competitor_deals=("InVideo",))
+    subject, body = template_draft(ctx)
+    assert "exclusivity with InVideo" in body and "when does it end" in body
+    assert validate_draft(subject, body, build_grounding(ctx, None)).ok
+    plain = template_draft(DraftContext(**{**ctx.__dict__, "competitor_deals": ()}))[1]
+    assert "exclusivity" not in plain
+
+
+def test_template_skips_income_and_competitor_titles_and_greets_the_channel():
+    from rpi.outreach.drafts import DraftContext, build_grounding, template_draft
+    from rpi.outreach.validator import validate_draft
+
+    videos = [{"ref": "1", "title": "How I Make $120,642.83/month Posting AI Videos", "url": None},
+              {"ref": "2", "title": "AI Edited My ENTIRE Video in Invideo (One Prompt)", "url": None},
+              {"ref": "3", "title": "Kling 4 is FINALLY Here", "url": None}]
+    ctx = DraftContext(creator_id="c", creator_name="Atomic Gains", videos=videos, primary_labels=["ai_video_tools"],
+                       capabilities=[], commission_rate_pct="30", commission_duration_text="for 12 months",
+                       proposition="paid sponsorship", request_audience_data=True, sender_name="Larry",
+                       avoid_title_terms=("InVideo", "InVideo AI"))
+    subject, body = template_draft(ctx)
+    assert '"Kling 4 is FINALLY Here"' in body and "$120" not in body and "Invideo" not in body
+    assert body.startswith("Hi Atomic Gains,") and subject == "Partnership idea for your AI video tools content"
+    assert validate_draft(subject, body, build_grounding(ctx, None)).ok

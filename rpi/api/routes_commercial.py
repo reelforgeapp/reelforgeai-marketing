@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -19,6 +19,7 @@ from rpi.api.serialize import clean, jsonb
 from rpi.core.audit import audit
 from rpi.crm import suppression
 from rpi.crm.pipeline import Status, TransitionError, transition
+from rpi.enrichment.service import creator_competitor_deals
 from rpi.financial_ledger.ledger import add_entry
 from rpi.outreach.drafts import DraftContext, generate, save_draft
 from rpi.outreach.sender import send_draft
@@ -416,6 +417,7 @@ async def create_draft(creator_id: str, body: DraftBody, ctx: RPIContext = Depen
                 "SELECT id FROM rpi_creator_contacts WHERE creator_id = $1 AND contact_type = 'email' ORDER BY is_business_contact DESC NULLS LAST, created_at LIMIT 1",
                 creator_id)
         labels = jsonb(cls["labels"]) or {}
+        deals = await creator_competitor_deals(conn, creator_id, now=datetime.now(timezone.utc))
         months = ctx.program.duration_months
         dctx = DraftContext(
             creator_id=creator_id, creator_name=creator["display_name"],
@@ -425,6 +427,9 @@ async def create_draft(creator_id: str, body: DraftBody, ctx: RPIContext = Depen
             commission_duration_text=f"for {months} months" if months else "for the lifetime of referred customers",
             proposition=body.proposition, request_audience_data=body.request_audience_data,
             sender_name=(settings_row["sender_name"] if settings_row and settings_row["sender_name"] else "The ReelForge AI team"),
+            competitor_deals=tuple(brand for brand, _ in deals),
+            avoid_title_terms=tuple(n for row in await conn.fetch("SELECT name, aliases FROM rpi_competitors WHERE active")
+                                    for n in (row["name"], *row["aliases"]) if n),
         )
         draft = await generate(ctx.llm if body.use_claude else None, ctx.fast_price, dctx,
                                sender_email=settings_row["sender_email"] if settings_row else None)

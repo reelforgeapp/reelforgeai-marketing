@@ -21,7 +21,7 @@ from rpi.compliance.untrusted import DATA_HANDLING_RULES, wrap_items
 from rpi.content_intelligence.claude_client import LLM, ModelPrice
 from rpi.content_intelligence.taxonomy import LABEL_BY_KEY
 from rpi.core.audit import audit
-from rpi.outreach.validator import NUMBER_RE, Grounding, validate_draft
+from rpi.outreach.validator import INCOME_PATTERNS, NUMBER_RE, Grounding, validate_draft
 
 AFFILIATE_INFO_URL = "https://www.reelforgeai.io/become-affiliate"
 PRODUCT_URL = "https://reelforgeai.io"
@@ -39,6 +39,10 @@ class DraftContext:
     proposition: str  # e.g. "paid sponsorship" | "affiliate partnership"
     request_audience_data: bool
     sender_name: str
+    # Direct competitors with a recent paid deal; the email asks about exclusivity.
+    competitor_deals: tuple[str, ...] = ()
+    # Competitor names and aliases; videos about them are not quoted when others exist.
+    avoid_title_terms: tuple[str, ...] = ()
 
 
 def build_grounding(ctx: DraftContext, sender_email: Optional[str]) -> Grounding:
@@ -46,6 +50,7 @@ def build_grounding(ctx: DraftContext, sender_email: Optional[str]) -> Grounding
     for v in ctx.videos:
         numbers.update(NUMBER_RE.findall(v.get("title") or ""))
     numbers.update(NUMBER_RE.findall(ctx.commission_duration_text))
+    numbers.update(NUMBER_RE.findall(ctx.creator_name or ""))  # the greeting uses the channel name
     numbers.update({"17"})  # lowest paid plan price (tiers.js)
     return Grounding(
         content_titles=[v["title"] for v in ctx.videos if v.get("title")],
@@ -56,12 +61,29 @@ def build_grounding(ctx: DraftContext, sender_email: Optional[str]) -> Grounding
     )
 
 
+def citable_videos(ctx: DraftContext) -> list[dict]:
+    """Videos the email may quote: never a title with an income claim (quoting
+    it reads as endorsing it) and, when possible, not one about a competitor."""
+    clean = [v for v in ctx.videos if v.get("title") and not any(re.search(p, v["title"], re.IGNORECASE) for p in INCOME_PATTERNS)]
+    avoid = [t.lower() for t in ctx.avoid_title_terms]
+    neutral = [v for v in clean if not any(t in v["title"].lower() for t in avoid)]
+    return neutral or clean
+
+
+def _topic(ctx: DraftContext) -> str:
+    key = ctx.primary_labels[0] if ctx.primary_labels else None
+    name = LABEL_BY_KEY[key].name if key in LABEL_BY_KEY else "AI video creation"
+    first, _, rest = name.partition(" ")
+    return (first if first.isupper() else first.lower()) + (" " + rest if rest else "")
+
+
 def template_draft(ctx: DraftContext) -> tuple[str, str]:
-    first = (ctx.creator_name or "").replace("[SYNTHETIC]", "").strip().split(" ")[0] or "there"
-    video = ctx.videos[0] if ctx.videos else None
-    topic = LABEL_BY_KEY[ctx.primary_labels[0]].name.lower() if ctx.primary_labels and ctx.primary_labels[0] in LABEL_BY_KEY else "AI video creation"
-    subject = f"Partnership idea for your {topic} content"
-    lines = [f"Hi {first},", ""]
+    # Channel names are not personal names, so greet the channel as named.
+    name = (ctx.creator_name or "").replace("[SYNTHETIC]", "").strip() or "there"
+    videos = citable_videos(ctx)
+    video = videos[0] if videos else None
+    subject = f"Partnership idea for your {_topic(ctx)} content"
+    lines = [f"Hi {name},", ""]
     if video:
         lines.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does, which is why I'm reaching out.")
     lines.append(
@@ -75,6 +97,9 @@ def template_draft(ctx: DraftContext) -> tuple[str, str]:
             f"We'd like to discuss a sponsored integration, and our affiliate program "
             f"({ctx.commission_rate_pct}% recurring {ctx.commission_duration_text}) can be part of it."
         )
+    for brand in ctx.competitor_deals:
+        lines.append(f"One of your recent videos was sponsored by {brand}. Do you have a category exclusivity with "
+                     f"{brand}, and if so, when does it end?")
     if ctx.request_audience_data:
         lines.append("If you're open to it, a recent screenshot of your audience geography and age breakdown would help us propose fair terms.")
     lines += ["", f"Would you be open to a short call or a reply with your current sponsorship rates?", "",
@@ -108,7 +133,9 @@ def draft_system_prompt() -> str:
         "- Do not state income, earnings, results or guarantees.\n"
         "- Only use numbers, percentages and URLs given in FACTS.\n"
         "- Do not include any email address.\n"
-        "- Sign with the sender name given in FACTS.\n\n" + DATA_HANDLING_RULES
+        "- Sign with the sender name given in FACTS.\n"
+        "- If FACTS lists ask_about_exclusivity_with, say that a recent video was sponsored by that brand and ask "
+        "whether the creator has a category exclusivity with it and when it ends.\n\n" + DATA_HANDLING_RULES
     )
 
 
@@ -131,8 +158,9 @@ async def generate(llm: Optional[LLM], price: Optional[ModelPrice], ctx: DraftCo
             ],
             "creator_topics": [LABEL_BY_KEY[l].name for l in ctx.primary_labels if l in LABEL_BY_KEY],
             "request_audience_data": ctx.request_audience_data,
+            "ask_about_exclusivity_with": list(ctx.competitor_deals),
         }
-        wrapped = wrap_items([(v["ref"], f"VIDEO TITLE: {v['title']}") for v in ctx.videos[:5]])
+        wrapped = wrap_items([(v["ref"], f"VIDEO TITLE: {v['title']}") for v in (citable_videos(ctx) or ctx.videos)[:5]])
         user = "FACTS (trusted, from ReelForge):\n" + json.dumps(facts, indent=2) + \
                "\n\nCreator videos (untrusted titles):\n" + wrapped.text
         result = await llm.call_tool(price=price, system=draft_system_prompt(), user=user, tool=draft_tool(),

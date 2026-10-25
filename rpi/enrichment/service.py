@@ -438,14 +438,25 @@ def match_competitor(brand_name: str, brand_domain: Optional[str], competitors: 
     return None
 
 
-def recent_competitor_deals(spons, *, now: datetime, days: int = 90) -> list[str]:
-    """Paid promotions of direct competitors in the last `days`, newest per brand."""
+def recent_competitor_deal_dates(spons, *, now: datetime, days: int = 90) -> list[tuple[str, datetime]]:
+    """Paid promotions of direct competitors in the last `days`: (brand, latest date), newest first."""
     latest: dict[str, datetime] = {}
     for s in spons:
         at = s["published_at"]
         if s["overlap"] == "direct" and s["relationship_type"] == "confirmed_paid" and at and now - at <= timedelta(days=days):
             latest[s["brand_name"]] = max(at, latest.get(s["brand_name"], at))
-    return [f"{brand} (paid, {at.date().isoformat()})" for brand, at in sorted(latest.items(), key=lambda kv: kv[1], reverse=True)]
+    return sorted(latest.items(), key=lambda kv: kv[1], reverse=True)
+
+
+def recent_competitor_deals(spons, *, now: datetime, days: int = 90) -> list[str]:
+    return [f"{brand} (paid, {at.date().isoformat()})" for brand, at in recent_competitor_deal_dates(spons, now=now, days=days)]
+
+
+async def creator_competitor_deals(conn, creator_id, *, now: datetime) -> list[tuple[str, datetime]]:
+    spons = await conn.fetch(
+        """SELECT r.brand_name, r.relationship_type, c.overlap, r.published_at FROM rpi_sponsorship_relationships r
+           LEFT JOIN rpi_competitors c ON c.id = r.competitor_id WHERE r.creator_id = $1""", creator_id)
+    return recent_competitor_deal_dates(spons, now=now)
 
 
 def sponsor_saturation(content: list, paid_content_ids: set[str]) -> dict:
