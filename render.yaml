@@ -24,6 +24,12 @@ services:
         sync: false
       - key: APIFY_API_TOKEN
         sync: false
+      # Required: protects /trigger, /keywords and /tasks (X-Admin-Key header)
+      - key: ADMIN_API_KEY
+        sync: false
+      # Required: Brevo webhook secret (bearer token, X-Brevo-Webhook-Token header or basic-auth password)
+      - key: BREVO_WEBHOOK_SECRET
+        sync: false
 
   - type: worker
     name: reelforge-worker

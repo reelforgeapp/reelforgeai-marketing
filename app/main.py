@@ -2,13 +2,16 @@
 ReelForge Marketing Engine - Main Application
 """
 
+import base64
+import binascii
 import json
 import hmac
 import hashlib
 from datetime import datetime
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, Header
 import structlog
 
 from app.config import get_settings
@@ -46,19 +49,65 @@ APP_VERSION = "4.13.0"
 app = FastAPI(title="ReelForge Marketing Engine", version=APP_VERSION, lifespan=lifespan)
 
 
-async def validate_brevo_webhook(request: Request) -> bytes:
-    if not settings.brevo_webhook_secret:
-        return await request.body()
-    
+DEFAULT_ADMIN_API_KEY = "change-me-in-production"
+
+
+async def require_admin_key(x_admin_key: Optional[str] = Header(default=None)) -> None:
+    """Protects operational endpoints (triggers, keyword management, task status).
+
+    Fails closed: when ADMIN_API_KEY is unset or still the placeholder, every
+    request is refused.
+    """
+    configured = settings.admin_api_key or ""
+    if not configured or configured == DEFAULT_ADMIN_API_KEY:
+        logger.error("ADMIN_API_KEY is not configured; refusing admin endpoint request")
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Admin-Key")
+    if not x_admin_key or not hmac.compare_digest(x_admin_key.encode(), configured.encode()):
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Admin-Key")
+
+
+ADMIN_ONLY = [Depends(require_admin_key)]
+
+
+def _brevo_credentials_valid(request: Request, body: bytes, secret: str) -> bool:
+    """Brevo authenticates webhooks with a bearer token, credentials in the
+    notify URL (basic auth) or custom headers; it does not sign payloads
+    (https://developers.brevo.com/docs/secured-webhooks). Accept the shared
+    secret through any of those, plus the legacy HMAC signature header."""
+    expected = secret.encode()
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credentials = authorization.partition(" ")
+    if scheme.lower() == "bearer" and credentials:
+        if hmac.compare_digest(credentials.strip().encode(), expected):
+            return True
+    if scheme.lower() == "basic" and credentials:
+        try:
+            _, _, password = base64.b64decode(credentials.strip()).decode().partition(":")
+        except (binascii.Error, UnicodeDecodeError):
+            password = ""
+        if password and hmac.compare_digest(password.encode(), expected):
+            return True
+    token = request.headers.get("x-brevo-webhook-token", "")
+    if token and hmac.compare_digest(token.encode(), expected):
+        return True
     signature = request.headers.get("X-Sib-Signature", "") or request.headers.get("X-Brevo-Signature", "")
+    if signature:
+        digest = hmac.new(expected, body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(signature.replace("sha256=", "").lower().encode(), digest.encode()):
+            return True
+    return False
+
+
+async def validate_brevo_webhook(request: Request) -> bytes:
     body = await request.body()
-    
-    expected = hmac.new(settings.brevo_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
-    signature_clean = signature.replace("sha256=", "").lower()
-    
-    if not hmac.compare_digest(signature_clean, expected.lower()):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-    
+    if not settings.brevo_webhook_secret:
+        if settings.environment == "development":
+            logger.warning("BREVO_WEBHOOK_SECRET not set; accepting unauthenticated webhook (development only)")
+            return body
+        logger.error("BREVO_WEBHOOK_SECRET not set; rejecting Brevo webhook")
+        raise HTTPException(status_code=401, detail="Webhook authentication is not configured")
+    if not _brevo_credentials_valid(request, body, settings.brevo_webhook_secret):
+        raise HTTPException(status_code=401, detail="Invalid webhook credentials")
     return body
 
 
@@ -209,49 +258,49 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
             await db.close()
 
 
-@app.post("/trigger/youtube-discovery")
+@app.post("/trigger/youtube-discovery", dependencies=ADMIN_ONLY)
 async def trigger_youtube_discovery():
     from tasks.discovery_tasks import run_youtube_discovery
     task = run_youtube_discovery.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/email-extraction")
+@app.post("/trigger/email-extraction", dependencies=ADMIN_ONLY)
 async def trigger_email_extraction():
     from tasks.enrichment_tasks import run_email_extraction
     task = run_email_extraction.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/email-verification")
+@app.post("/trigger/email-verification", dependencies=ADMIN_ONLY)
 async def trigger_email_verification():
     from tasks.enrichment_tasks import run_email_verification
     task = run_email_verification.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/sequence-processing")
+@app.post("/trigger/sequence-processing", dependencies=ADMIN_ONLY)
 async def trigger_sequence_processing():
     from tasks.outreach_tasks import process_pending_sequences
     task = process_pending_sequences.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/auto-enroll")
+@app.post("/trigger/auto-enroll", dependencies=ADMIN_ONLY)
 async def trigger_auto_enroll():
     from tasks.outreach_tasks import auto_enroll_prospects
     task = auto_enroll_prospects.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/brevo-sync")
+@app.post("/trigger/brevo-sync", dependencies=ADMIN_ONLY)
 async def trigger_brevo_sync():
     from tasks.maintenance_tasks import sync_contacts_to_brevo
     task = sync_contacts_to_brevo.delay()
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/brevo-sync-full")
+@app.post("/trigger/brevo-sync-full", dependencies=ADMIN_ONLY)
 async def trigger_brevo_sync_full():
     """Force sync ALL verified prospects to Brevo, ignoring last sync time."""
     from tasks.maintenance_tasks import sync_contacts_to_brevo
@@ -259,7 +308,7 @@ async def trigger_brevo_sync_full():
     return {"status": "triggered", "task_id": task.id, "mode": "force_full_sync"}
 
 
-@app.post("/trigger/deliverability-check")
+@app.post("/trigger/deliverability-check", dependencies=ADMIN_ONLY)
 async def trigger_deliverability_check():
     """Run deliverability metrics check and send alerts if thresholds exceeded."""
     from tasks.maintenance_tasks import check_deliverability_metrics
@@ -267,7 +316,7 @@ async def trigger_deliverability_check():
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.post("/trigger/keyword-trends")
+@app.post("/trigger/keyword-trends", dependencies=ADMIN_ONLY)
 async def trigger_keyword_trends():
     """Run Google Trends analysis to update keyword priorities."""
     from tasks.maintenance_tasks import analyze_keyword_trends
@@ -275,7 +324,7 @@ async def trigger_keyword_trends():
     return {"status": "triggered", "task_id": task.id}
 
 
-@app.get("/keywords/trends/{keyword}")
+@app.get("/keywords/trends/{keyword}", dependencies=ADMIN_ONLY)
 async def get_keyword_trend(keyword: str):
     """Get Google Trends data for a specific keyword."""
     settings = get_settings()
@@ -303,7 +352,7 @@ async def get_keyword_trend(keyword: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/keywords/compare")
+@app.post("/keywords/compare", dependencies=ADMIN_ONLY)
 async def compare_keywords(request: Request):
     """Compare multiple keywords head-to-head using Google Trends."""
     settings = get_settings()
@@ -330,7 +379,7 @@ async def compare_keywords(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/tasks/{task_id}")
+@app.get("/tasks/{task_id}", dependencies=ADMIN_ONLY)
 async def get_task_status(task_id: str):
     from celery.result import AsyncResult
     from celery_config import celery_app
@@ -342,7 +391,7 @@ async def get_task_status(task_id: str):
 # Keyword Management API
 # =====================================================
 
-@app.get("/keywords")
+@app.get("/keywords", dependencies=ADMIN_ONLY)
 async def list_keywords():
     """List all discovery keywords with stats."""
     db = None
@@ -368,7 +417,7 @@ async def list_keywords():
             await db.close()
 
 
-@app.post("/keywords")
+@app.post("/keywords", dependencies=ADMIN_ONLY)
 async def add_keyword(request: Request):
     """Add a new discovery keyword."""
     db = None
@@ -410,7 +459,7 @@ async def add_keyword(request: Request):
             await db.close()
 
 
-@app.patch("/keywords/{keyword_id}")
+@app.patch("/keywords/{keyword_id}", dependencies=ADMIN_ONLY)
 async def update_keyword(keyword_id: str, request: Request):
     """Update a keyword (toggle active, change priority, etc.)."""
     db = None
@@ -460,7 +509,7 @@ async def update_keyword(keyword_id: str, request: Request):
             await db.close()
 
 
-@app.delete("/keywords/{keyword_id}")
+@app.delete("/keywords/{keyword_id}", dependencies=ADMIN_ONLY)
 async def delete_keyword(keyword_id: str):
     """Delete a keyword."""
     db = None

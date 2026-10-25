@@ -84,16 +84,26 @@ In Render Web Service → Environment:
 | `REDIS_URL` | ✅ | Copy from Redis service |
 | `YOUTUBE_API_KEY` | ✅ | Google Cloud Console |
 | `BREVO_API_KEY` | ✅ | Brevo dashboard |
-| `BREVO_WEBHOOK_SECRET` | ✅ | Generate and set in Brevo |
+| `BREVO_WEBHOOK_SECRET` | ✅ | Random string (24+ chars); Brevo sends it with every webhook (see step 5). Webhooks are rejected without it, except when `ENVIRONMENT=development` |
+| `ADMIN_API_KEY` | ✅ | Random string (24+ chars). Required in the `X-Admin-Key` header for `/trigger/*`, `/keywords*` and `/tasks/*`. While unset (or left as `change-me-in-production`) those endpoints refuse every request |
 | `CLEAROUT_API_KEY` | Recommended | For email verification |
 | `SENTRY_DSN` | Optional | Error monitoring |
 
 ### 5. Configure Brevo Webhook
 
-1. Go to Brevo → Settings → Webhooks
-2. Add URL: `https://your-app.onrender.com/webhooks/brevo`
-3. Enable all events
-4. Set signing secret (copy to `BREVO_WEBHOOK_SECRET`)
+Brevo does not sign webhook payloads. It authenticates with a bearer token, credentials in the notify URL, or
+custom headers ([Brevo: secured webhooks](https://developers.brevo.com/docs/secured-webhooks)). The app accepts
+`BREVO_WEBHOOK_SECRET` through any of these:
+
+- **Credentials in the URL** (simplest): set the notify URL to
+  `https://brevo:<BREVO_WEBHOOK_SECRET>@your-app.onrender.com/webhooks/brevo` (any username; the password is the secret).
+- **Bearer token**: create or update the webhook through the Brevo API with `"auth": {"type": "bearer", "token": "<BREVO_WEBHOOK_SECRET>"}`.
+- **Custom header**: through the API, add the header `X-Brevo-Webhook-Token: <BREVO_WEBHOOK_SECRET>`.
+
+Enable the delivered, opened, clicked, hard/soft bounce, unsubscribed and spam events.
+
+**Order matters when upgrading:** set `BREVO_WEBHOOK_SECRET` in Render and update the Brevo webhook first, then
+deploy. Otherwise bounce and unsubscribe events are rejected until both sides match.
 
 ### 6. Verify Deployment
 
@@ -104,8 +114,8 @@ curl https://your-app.onrender.com/health
 # Status (shows Redis connection)
 curl https://your-app.onrender.com/status
 
-# Trigger discovery manually
-curl -X POST https://your-app.onrender.com/trigger/youtube-discovery
+# Trigger discovery manually (admin key required)
+curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" https://your-app.onrender.com/trigger/youtube-discovery
 ```
 
 ## Scheduled Jobs (Celery Beat)
@@ -127,7 +137,9 @@ curl -X POST https://your-app.onrender.com/trigger/youtube-discovery
 - `GET /status` - System status + stats
 
 ### Webhooks
-- `POST /webhooks/brevo` - Email event webhooks
+- `POST /webhooks/brevo` - Email event webhooks (authenticated with `BREVO_WEBHOOK_SECRET`, see step 5)
+
+Every endpoint below requires the header `X-Admin-Key: <ADMIN_API_KEY>`; requests without it get `401`.
 
 ### Manual Triggers
 - `POST /trigger/youtube-discovery`
@@ -135,6 +147,13 @@ curl -X POST https://your-app.onrender.com/trigger/youtube-discovery
 - `POST /trigger/email-verification`
 - `POST /trigger/sequence-processing`
 - `POST /trigger/auto-enroll`
+- `POST /trigger/brevo-sync`, `POST /trigger/brevo-sync-full`
+- `POST /trigger/deliverability-check`
+- `POST /trigger/keyword-trends`
+
+### Keywords
+- `GET /keywords`, `POST /keywords`, `PATCH /keywords/{id}`, `DELETE /keywords/{id}`
+- `GET /keywords/trends/{keyword}`, `POST /keywords/compare`
 
 ### Task Status
 - `GET /tasks/{task_id}` - Check Celery task status
