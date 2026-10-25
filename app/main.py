@@ -5,6 +5,7 @@ ReelForge Marketing Engine - Main Application
 import base64
 import binascii
 import json
+import uuid
 import hmac
 import hashlib
 from datetime import datetime
@@ -12,6 +13,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi.responses import HTMLResponse
 import structlog
 
 from app.config import get_settings
@@ -109,6 +111,68 @@ async def validate_brevo_webhook(request: Request) -> bytes:
     if not _brevo_credentials_valid(request, body, settings.brevo_webhook_secret):
         raise HTTPException(status_code=401, detail="Invalid webhook credentials")
     return body
+
+
+async def _record_unsubscribe(prospect_id: str) -> bool:
+    """Mark the prospect unsubscribed and stop active sequences. Idempotent."""
+    db = await get_database_async()
+    try:
+        async with db.acquire() as conn:
+            async with conn.transaction():
+                exists = await conn.fetchval("SELECT 1 FROM marketing_prospects WHERE id = $1::uuid", prospect_id)
+                if not exists:
+                    return False
+                await conn.execute(
+                    "UPDATE marketing_prospects SET status = 'unsubscribed' WHERE id = $1::uuid AND status IS DISTINCT FROM 'unsubscribed'",
+                    prospect_id,
+                )
+                await conn.execute("""
+                    UPDATE outreach_sequences SET status = 'stopped', stopped_reason = 'unsubscribed', completed_at = NOW()
+                    WHERE prospect_id = $1::uuid AND status IN ('pending', 'active')
+                """, prospect_id)
+        return True
+    finally:
+        await db.close()
+
+
+def _valid_unsubscribe(prospect_id: str, token: str) -> bool:
+    from services.compliance import verify_unsubscribe_token
+    try:
+        uuid.UUID(prospect_id)
+    except ValueError:
+        return False
+    return verify_unsubscribe_token(settings, prospect_id, token)
+
+
+UNSUBSCRIBED_PAGE = (
+    "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+    "<title>Unsubscribed</title><body style='font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem'>"
+    "<h1 style='font-size:1.4rem'>You're unsubscribed</h1>"
+    "<p>ReelForge AI won't send you any more partnership emails.</p></body>"
+)
+INVALID_LINK_PAGE = (
+    "<!doctype html><meta charset='utf-8'><title>Link not valid</title>"
+    "<body style='font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem'>"
+    "<p>This unsubscribe link isn't valid. Reply \"unsubscribe\" to any of our emails and we'll remove you.</p></body>"
+)
+
+
+@app.get("/unsubscribe/{prospect_id}", response_class=HTMLResponse, include_in_schema=False)
+async def unsubscribe_page(prospect_id: str, t: str = ""):
+    """Unsubscribe link in every outreach email (signed per prospect)."""
+    if not _valid_unsubscribe(prospect_id, t):
+        return HTMLResponse(INVALID_LINK_PAGE, status_code=400)
+    await _record_unsubscribe(prospect_id)
+    return HTMLResponse(UNSUBSCRIBED_PAGE)
+
+
+@app.post("/unsubscribe/{prospect_id}", include_in_schema=False)
+async def unsubscribe_one_click(prospect_id: str, t: str = ""):
+    """RFC 8058 one-click unsubscribe (List-Unsubscribe-Post) from mail clients."""
+    if not _valid_unsubscribe(prospect_id, t):
+        raise HTTPException(status_code=400, detail="Invalid unsubscribe link")
+    await _record_unsubscribe(prospect_id)
+    return {"status": "unsubscribed"}
 
 
 @app.get("/health")

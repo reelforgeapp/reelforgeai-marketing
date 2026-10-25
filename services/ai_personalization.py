@@ -102,35 +102,31 @@ Their recent video:
 """
         
         if template_type == "initial":
-            email_goal = "First outreach - build rapport, introduce ReelForge AI affiliate program"
-            tone = "warm, genuine, not salesy"
+            email_goal = "First outreach - introduce ReelForge AI and its affiliate program"
+            tone = "warm, specific, not salesy"
             key_points = """
-- Compliment something specific about their content (be genuine, not generic)
+- Mention something specific from the video information above, stated factually
+  ("Your video on X covers ..."), never as if the sender personally watched it
 - Introduce yourself as Larry Barksdale from ReelForge AI
-- Briefly explain ReelForge (AI video platform, 90-second videos from prompts)
-- Mention 30% lifetime recurring commissions
-- Mention creators earning $1,000+/month
-- End with soft CTA (reply to chat more)
+- Briefly explain ReelForge (turns a prompt or niche into finished short-form videos)
+- Mention the 30% recurring commission on referred subscriptions
+- End with a soft call to action (reply with questions)
 """
         elif template_type == "followup_1":
-            email_goal = "Follow-up - provide social proof and affiliate link"
-            tone = "helpful, providing value, light urgency"
+            email_goal = "Follow-up - share the affiliate signup link"
+            tone = "helpful and brief"
             key_points = """
-- Reference previous email briefly
-- Share specific success story ($500-2000/month range)
-- Include affiliate signup link
-- Mention spots filling up
+- Reference the previous email briefly
+- Include the affiliate signup link
 - Ask if they have questions
 """
         else:  # followup_2
-            email_goal = "Final follow-up - special offer, respect their time"
-            tone = "respectful, final push with bonus offer"
+            email_goal = "Final follow-up - respect their time"
+            tone = "respectful and brief"
             key_points = """
-- Acknowledge this is final reach-out
-- Offer 3 months FREE ReelForge Pro ($150 value)
-- Priority support and early access to features
-- Remind of 30% lifetime commissions
-- Include signup link
+- Say this is the last message
+- Remind them of the 30% recurring commission
+- Include the signup link
 - Wish them well either way
 """
         
@@ -158,6 +154,10 @@ RULES:
 - Personalize based on their specific content/niche if possible
 - Sign off as "Larry Barksdale" (not "Larry Barksdale, ReelForge AI" - just the name)
 - CRITICAL: The commission rate is EXACTLY 30% - never mention any other percentage (not 40%, not 25%, etc.)
+- Never claim or imply that the sender watched, follows or is a fan of the creator
+- Never state or imply earnings, income, results, success stories or guarantees
+- Never invent offers, discounts, free plans, deadlines or limited spots
+- Do not add a footer or unsubscribe text; it is added automatically
 - Include these links in initial emails:
   - Affiliate info: https://www.reelforgeai.io/become-affiliate
   - Free signup: https://reelforgeai.io
@@ -207,45 +207,37 @@ Write the email now:"""
         competitor_mentions = prospect.get("competitor_mentions") or []
         competitor = competitor_mentions[0] if competitor_mentions else "AI video tools"
         
+        # Same copy as database/migrations/004_compliant_email_templates.sql.
         if template_type == "initial":
             return {
-                "subject": f"Impressed by your {competitor} review - Unlock 30% lifetime earnings?",
+                "subject": f"Your {competitor} content and the ReelForge AI affiliate program",
                 "body": f"""<p>Hi {first_name},</p>
-<p>I just watched your video on {competitor} and was genuinely impressed by your insightful breakdown of AI video tools. It's clear you know what creators really need.</p>
-<p>I'm Larry Barksdale from ReelForge AI, where we empower creators like you to produce stunning videos in minutes—saving hours of editing time so you can focus on what you love.</p>
-<p>We've handpicked a select group of top creators for our affiliate program, offering <strong>30% lifetime recurring commissions</strong> on every referral. Imagine earning passive income month after month from your authentic recommendations—many partners are already seeing $1,000+ monthly without extra work.</p>
-<p>What if this could add a reliable revenue stream to your channel? Reply to chat more—I'd love to share how others are succeeding.</p>
-<p><strong>Learn more about our affiliate program:</strong> <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
-<p><strong>Try ReelForge AI for free:</strong> <a href="https://reelforgeai.io">https://reelforgeai.io</a></p>
-<p>Best,<br>Larry Barksdale</p>""",
-                "text_body": f"Hi {first_name}, I just watched your video on {competitor} and was genuinely impressed. I'm Larry Barksdale from ReelForge AI. We offer 30% lifetime recurring commissions. Learn more: https://www.reelforgeai.io/become-affiliate | Try free: https://reelforgeai.io -Larry"
+<p>I came across your {competitor} content while looking for creators who cover AI video tools, and I think your audience could be a good fit for ReelForge AI.</p>
+<p>ReelForge AI turns a prompt or niche into finished short-form videos, with script, visuals, voiceover and captions, so creators can publish consistently without editing.</p>
+<p>Our affiliate program pays a <strong>30% recurring commission</strong> on the subscriptions you refer. Program details and terms: <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a></p>
+<p>You can try ReelForge AI for free at <a href="https://reelforgeai.io">https://reelforgeai.io</a>. If it looks like a fit, just reply and I'll answer any questions.</p>
+<p>Best,<br>Larry Barksdale<br>ReelForge AI</p>""",
+                "text_body": f"Hi {first_name}, I came across your {competitor} content while looking for creators who cover AI video tools. ReelForge AI turns a prompt or niche into finished short-form videos. Our affiliate program pays a 30% recurring commission on referred subscriptions: https://www.reelforgeai.io/become-affiliate. Try it free: https://reelforgeai.io. Best, Larry Barksdale"
             }
         elif template_type == "followup_1":
             return {
-                "subject": f"{first_name}, creators are earning $1k+/mo with this—your link inside",
+                "subject": "Following up: ReelForge AI affiliate program",
                 "body": f"""<p>Hi {first_name},</p>
-<p>Quick follow-up on my note about partnering with ReelForge AI. I know your time is valuable, so I'll keep this brief.</p>
-<p>Since launching, creators in our program have generated $500–$2,000/month simply by sharing honest reviews. One partner (a tech reviewer like you) hit $1,500 in their first month alone—purely from audience trust.</p>
-<p><strong>Ready to get started?</strong> <a href="https://www.reelforgeai.io/become-affiliate">Join the affiliate program here</a></p>
-<p>Spots are filling up fast—any thoughts or questions? Just hit reply.</p>
+<p>A quick follow-up on my note about the ReelForge AI affiliate program.</p>
+<p>If you'd like to see whether it suits your audience, you can join here: <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a>. Commissions are 30% recurring on the subscriptions you refer.</p>
+<p>Happy to answer any questions. Just reply to this email.</p>
 <p>Best,<br>Larry Barksdale</p>""",
-                "text_body": f"Hi {first_name}, Quick follow-up on ReelForge. Creators earn $500-2000/month. Join here: https://www.reelforgeai.io/become-affiliate Reply with questions! -Larry"
+                "text_body": f"Hi {first_name}, a quick follow-up on the ReelForge AI affiliate program. You can join here: https://www.reelforgeai.io/become-affiliate. Commissions are 30% recurring on referred subscriptions. Best, Larry Barksdale"
             }
         else:
             return {
-                "subject": f"Last chance, {first_name}: Free Pro access + 30% commissions",
+                "subject": f"Closing the loop, {first_name}",
                 "body": f"""<p>Hi {first_name},</p>
-<p>This is my final reach-out—I respect your inbox!</p>
-<p>To make it a no-brainer, if you join this week, you'll get:</p>
-<ul>
-<li>3 months FREE ReelForge Pro ($150 value)</li>
-<li>Dedicated priority support</li>
-<li>Exclusive early access to beta features</li>
-</ul>
-<p>Plus, that <strong>30% lifetime recurring commission</strong> on referrals.</p>
-<p>Keep crushing it with your content either way!</p>
+<p>This is my last note on this, so I won't fill your inbox.</p>
+<p>If a 30% recurring commission for recommending an AI short-form video tool is ever useful, the signup link is <a href="https://www.reelforgeai.io/become-affiliate">https://www.reelforgeai.io/become-affiliate</a>.</p>
+<p>Either way, thanks for the content you make.</p>
 <p>Best,<br>Larry Barksdale</p>""",
-                "text_body": f"Hi {first_name}, Last chance! Join this week for 3 months FREE Pro + 30% lifetime commissions. -Larry"
+                "text_body": f"Hi {first_name}, this is my last note on this. If a 30% recurring commission for recommending an AI short-form video tool is ever useful, the signup link is https://www.reelforgeai.io/become-affiliate. Best, Larry Barksdale"
             }
 
 

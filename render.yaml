@@ -30,6 +30,9 @@ services:
       # Required: Brevo webhook secret (bearer token, X-Brevo-Webhook-Token header or basic-auth password)
       - key: BREVO_WEBHOOK_SECRET
         sync: false
+      # Required before any outreach is sent (CAN-SPAM): full postal address for the email footer
+      - key: COMPANY_POSTAL_ADDRESS
+        sync: false
 
   - type: worker
     name: reelforge-worker
@@ -61,6 +64,11 @@ services:
       - key: MIN_INSTAGRAM_FOLLOWERS
         sync: false
       - key: MIN_TIKTOK_FOLLOWERS
+        sync: false
+      # Outreach compliance: footer address and unsubscribe-link signing (must match the web service)
+      - key: COMPANY_POSTAL_ADDRESS
+        sync: false
+      - key: ADMIN_API_KEY
         sync: false
 
 databases:

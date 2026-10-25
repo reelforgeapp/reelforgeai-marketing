@@ -18,6 +18,7 @@ EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 from celery_config import celery_app, BaseTaskWithRetry
 from app.config import get_settings
 from app.database import get_database_async, DatabaseTransaction
+from services.compliance import compliance_problems, content_violations, finalize_email
 
 logger = structlog.get_logger()
 
@@ -87,6 +88,11 @@ async def generate_ai_email(prospect: dict, template_type: str = "initial") -> d
         )
         
         if result.get("subject") and result.get("body"):
+            violations = content_violations(result.get("subject", ""), result.get("text_body") or result.get("body", ""))
+            if violations:
+                logger.warning("AI email rejected; template will be used", prospect_id=str(prospect.get("id", "")),
+                               violations=violations[:3])
+                return None
             logger.info("AI email generated", prospect_id=str(prospect.get("id", "")), template_type=template_type)
             return result
         
@@ -116,7 +122,13 @@ async def _process_sequences_async() -> dict:
     
     if not settings.brevo_api_key:
         return {"status": "error", "error": "Brevo API key not configured"}
-    
+
+    # CAN-SPAM: refuse to send without a postal address and working unsubscribe links.
+    problems = compliance_problems(settings)
+    if problems:
+        logger.error("Outreach sending blocked by compliance check", reasons=problems)
+        return {"status": "blocked", "reasons": problems}
+
     try:
         db = await get_database_async()
         from outreach.brevo_client import BrevoClient
@@ -226,11 +238,17 @@ async def _process_sequences_async() -> dict:
                         continue
                     
                     # Use AI-generated email if available, otherwise use template
-                    if pdata.get("use_ai_email") and current_step == 0 and pdata.get("ai_subject"):
+                    # AI copy stored at enrollment is re-checked: copy written under the old prompt
+                    # may contain earnings claims, and then the template is used instead.
+                    use_ai = (pdata.get("use_ai_email") and current_step == 0 and pdata.get("ai_subject")
+                              and not content_violations(pdata.get("ai_subject", ""), pdata.get("ai_text_body") or pdata.get("ai_body", "")))
+                    if use_ai:
                         subject = pdata["ai_subject"]
                         html_content = pdata["ai_body"]
+                        text_content = pdata.get("ai_text_body")
                         logger.info("Using AI-generated email", sequence_id=str(seq["id"]))
                     else:
+                        text_content = safe_render_template(email_template["text_template"], pdata, "") if email_template["text_template"] else None
                         # Render templates safely
                         subject = safe_render_template(
                             email_template["subject_template"], 
@@ -260,12 +278,19 @@ async def _process_sequences_async() -> dict:
                         results["skipped"] += 1
                         continue
 
+                    # Sender identity, postal address and a signed unsubscribe link on every email.
+                    html_content, text_content, unsubscribe_headers = finalize_email(
+                        settings, str(seq["prospect_id"]), html_content, text_content
+                    )
+
                     result = await brevo.send_email(
                         to_email=to_email,
                         to_name=seq["full_name"] or "",
                         subject=subject,
                         html_content=html_content,
-                        tags=[f"sequence:{seq['sequence_name']}", f"step:{current_step + 1}", "ai_personalized" if pdata.get("use_ai_email") else "template"]
+                        text_content=text_content,
+                        headers=unsubscribe_headers,
+                        tags=[f"sequence:{seq['sequence_name']}", f"step:{current_step + 1}", "ai_personalized" if use_ai else "template"]
                     )
                     
                     if result.get("success"):

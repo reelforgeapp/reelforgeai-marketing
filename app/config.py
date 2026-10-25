@@ -37,11 +37,20 @@ class Settings(BaseSettings):
     
     # Anthropic (AI Personalization)
     anthropic_api_key: str = Field(default="")
-    anthropic_model: str = Field(default="claude-3-5-haiku-20241022")
-    
+    anthropic_model: str = Field(default="claude-haiku-5-5")
+
     # Outreach
     daily_email_limit: int = Field(default=50)
     min_relevance_score: float = Field(default=0.5)
+
+    # Outreach compliance (CAN-SPAM): sending is refused until these are valid
+    company_legal_name: str = Field(default="Lydell Security LLC d/b/a ReelForge AI")
+    company_postal_address: str = Field(default="")  # street address, USPS PO box or private mailbox
+    public_base_url: str = Field(default="https://reelforgeai-marketing.onrender.com")  # unsubscribe links
+    unsubscribe_secret: str = Field(default="")  # optional; falls back to ADMIN_API_KEY
+
+    # YouTube API Services policy: API data is refreshed or deleted after 30 days
+    youtube_data_max_age_days: int = Field(default=30)
     
     # Discovery Filters
     min_youtube_subscribers: int = Field(default=5000)

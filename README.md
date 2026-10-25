@@ -5,9 +5,9 @@ Automated affiliate marketing system for recruiting content creators who review 
 ## Features
 
 - **Multi-Platform Discovery**: YouTube, Instagram, TikTok creator discovery
-- **Smart Email Extraction**: Hybrid HTTP + Playwright approach
+- **Contact emails**: from the channel description returned by the YouTube Data API at discovery; creators' own websites are checked when known. YouTube pages are never scraped (YouTube Terms of Service and API Developer Policies)
 - **Email Verification**: Clearout/Hunter.io integration
-- **Automated Outreach**: Multi-step email sequences with personalization
+- **Automated Outreach**: Multi-step email sequences with personalization. Every email carries the sender, a postal address and a one-click unsubscribe link; sending is refused until `COMPANY_POSTAL_ADDRESS` is set
 - **Idempotency Protection**: Prevents duplicate sends
 - **GDPR Compliance**: Consent logging, data retention, right to deletion
 - **Real-time Webhooks**: Brevo event tracking with HMAC validation
@@ -86,6 +86,8 @@ In Render Web Service → Environment:
 | `BREVO_API_KEY` | ✅ | Brevo dashboard |
 | `BREVO_WEBHOOK_SECRET` | ✅ | Random string (24+ chars); Brevo sends it with every webhook (see step 5). Webhooks are rejected without it, except when `ENVIRONMENT=development` |
 | `ADMIN_API_KEY` | ✅ | Random string (24+ chars). Required in the `X-Admin-Key` header for `/trigger/*`, `/keywords*` and `/tasks/*`. While unset (or left as `change-me-in-production`) those endpoints refuse every request |
+| `COMPANY_POSTAL_ADDRESS` | ✅ (web + worker) | Physical postal address for the email footer (street address, USPS PO box or private mailbox). **No outreach is sent while this is empty** |
+| `PUBLIC_BASE_URL` | Optional | Base URL for unsubscribe links (default `https://reelforgeai-marketing.onrender.com`) |
 | `CLEAROUT_API_KEY` | Recommended | For email verification |
 | `SENTRY_DSN` | Optional | Error monitoring |
 
@@ -124,17 +126,21 @@ curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" https://your-app.onrender.com/trig
 |-----|----------|---------|
 | YouTube Discovery | Daily 2 AM EST | Find new creators |
 | Apify Discovery | Daily 3 AM EST | Instagram/TikTok |
-| Email Extraction | Every 6 hours | Get contact info |
+| Email Extraction | Every 6 hours | Check creators' own websites for contact info (never YouTube pages) |
 | Email Verification | Every 6 hours | Validate emails |
 | Sequence Processing | Every 15 min | Send emails |
 | Auto-Enrollment | Every 3 hours | Start sequences |
-| Data Purge | Daily 4 AM EST | GDPR cleanup |
+| YouTube data scrub | Daily 4:45 AM | Clear YouTube statistics older than 30 days (API policy) |
 
 ## API Endpoints
 
 ### Health & Status
 - `GET /health` - Health check
 - `GET /status` - System status + stats
+
+### Unsubscribe (public, signed links)
+- `GET /unsubscribe/{prospect_id}?t=...` - link in every outreach email
+- `POST /unsubscribe/{prospect_id}?t=...` - one-click unsubscribe from mail clients
 
 ### Webhooks
 - `POST /webhooks/brevo` - Email event webhooks (authenticated with `BREVO_WEBHOOK_SECRET`, see step 5)
