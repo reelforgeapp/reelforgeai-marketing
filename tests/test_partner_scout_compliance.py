@@ -95,6 +95,8 @@ OLD_COPY = [
     "{{first_name}}, creators are earning $1k+/mo with this—your link inside",
     "I've been following your TikTok content and love your take on AI tools!",
     "Imagine earning passive income month after month",
+    "Love what you're doing on TikTok! Your content style really stands out.",
+    "I came across your videos about Pictory and really enjoyed your content style.",
 ]
 
 
