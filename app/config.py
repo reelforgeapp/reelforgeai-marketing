@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Outreach compliance (CAN-SPAM): sending is refused until these are valid
     company_legal_name: str = Field(default="Lydell Security LLC d/b/a ReelForge AI")
     company_postal_address: str = Field(default="")  # street address, USPS PO box or private mailbox
+    # Master switch for Partner Scout's automatic outreach (sequence emails and auto-enrollment).
+    # false pauses both; unsubscribe/reply handling keeps running. Set on web and worker.
+    partner_scout_auto_outreach_enabled: bool = Field(default=True)
     public_base_url: str = Field(default="https://reelforgeai-marketing.onrender.com")  # unsubscribe links
     unsubscribe_secret: str = Field(default="")  # optional; falls back to ADMIN_API_KEY
 
