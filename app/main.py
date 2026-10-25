@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import structlog
 
 from app.config import get_settings
@@ -181,6 +181,13 @@ async def unsubscribe_one_click(prospect_id: str, t: str = ""):
         raise HTTPException(status_code=400, detail="Invalid unsubscribe link")
     await _record_unsubscribe(prospect_id)
     return {"status": "unsubscribed"}
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    # The only browser UI is ReelForge Partner Intelligence. A relative Location
+    # keeps the https scheme behind Render's proxy.
+    return RedirectResponse("/rpi/ui")
 
 
 @app.get("/health")
