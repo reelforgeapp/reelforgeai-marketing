@@ -1,5 +1,10 @@
 """
 Hybrid Email Extractor - HTTP + Playwright fallback
+
+Looks for a contact email on a creator's own website or link-in-bio page.
+YouTube pages are never fetched: YouTube's Terms of Service and the YouTube API
+Services Developer Policies prohibit scraping. Emails from YouTube come only
+from the channel description returned by the YouTube Data API at discovery.
 """
 
 import asyncio
@@ -13,6 +18,18 @@ from app.config import get_settings
 from app.database import get_database_async
 
 logger = structlog.get_logger()
+
+
+YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+
+
+def _is_youtube(url: str) -> bool:
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url if "://" in url else "https://" + url).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(host == h or host.endswith("." + h) for h in YOUTUBE_HOSTS)
 
 
 class HybridEmailExtractor:
@@ -35,15 +52,18 @@ class HybridEmailExtractor:
         try:
             db = await get_database_async()
 
+            # Only prospects with a non-YouTube page to check.
             query = """
-                SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
+                SELECT id, website_url, bio_link_url
                 FROM marketing_prospects
                 WHERE email IS NULL AND status = 'discovered'
+                  AND (website_url IS NOT NULL OR bio_link_url IS NOT NULL)
                 ORDER BY relevance_score DESC
                 LIMIT $1
             """ if only_missing else """
-                SELECT id, youtube_channel_id, youtube_handle, website_url, bio_link_url
+                SELECT id, website_url, bio_link_url
                 FROM marketing_prospects
+                WHERE website_url IS NOT NULL OR bio_link_url IS NOT NULL
                 ORDER BY relevance_score DESC
                 LIMIT $1
             """
@@ -56,12 +76,8 @@ class HybridEmailExtractor:
                 email = None
                 method = None
 
-                # Try YouTube About page first
-                if prospect['youtube_channel_id']:
-                    email, method = await self._extract_from_youtube(prospect['youtube_channel_id'])
-
-                # Try website/bio link
-                if not email and prospect.get('website_url'):
+                # Creator's own website / link-in-bio page (never YouTube pages)
+                if prospect.get('website_url'):
                     email, method = await self._extract_from_url(prospect['website_url'])
 
                 if not email and prospect.get('bio_link_url'):
@@ -91,11 +107,10 @@ class HybridEmailExtractor:
 
         return results
     
-    async def _extract_from_youtube(self, channel_id: str) -> tuple[Optional[str], Optional[str]]:
-        url = f"https://www.youtube.com/channel/{channel_id}/about"
-        return await self._extract_from_url(url)
-    
     async def _extract_from_url(self, url: str) -> tuple[Optional[str], Optional[str]]:
+        if _is_youtube(url):
+            logger.warning("Refusing to fetch a YouTube page for email extraction", url=url)
+            return None, None
         # Try HTTP first
         try:
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:

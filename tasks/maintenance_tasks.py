@@ -236,6 +236,45 @@ async def _purge_data_async() -> dict:
     return results
 
 
+SCRUB_YOUTUBE_SQL = """
+    UPDATE marketing_prospects
+    SET youtube_subscribers = NULL,
+        youtube_avg_views = NULL,
+        youtube_total_videos = NULL,
+        source_video_title = NULL,
+        raw_data = '{}'::jsonb
+    WHERE discovered_at < NOW() - make_interval(days => $1)
+      AND (youtube_subscribers IS NOT NULL OR youtube_avg_views IS NOT NULL OR youtube_total_videos IS NOT NULL
+           OR source_video_title IS NOT NULL OR raw_data <> '{}'::jsonb)
+"""
+
+
+@celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')
+def scrub_stale_youtube_data(self):
+    return asyncio.run(_scrub_youtube_async())
+
+
+async def _scrub_youtube_async() -> dict:
+    """YouTube API Services Developer Policies III.E.4: API data may be stored for at most
+    30 days before it is refreshed or deleted. Discovery never refreshes a channel, so
+    statistics and video titles are cleared after youtube_data_max_age_days. Channel id,
+    name, email and status are kept so opt-outs and deduplication keep working."""
+    settings = get_settings()
+    db = None
+    try:
+        db = await get_database_async()
+        status = await db.execute(SCRUB_YOUTUBE_SQL, settings.youtube_data_max_age_days)
+        scrubbed = int(status.split()[-1]) if status.startswith("UPDATE") else 0
+        logger.info("Stale YouTube data scrubbed", prospects=scrubbed, max_age_days=settings.youtube_data_max_age_days)
+        return {"scrubbed": scrubbed}
+    except Exception as e:
+        logger.error("YouTube data scrub failed", error=str(e))
+        return {"error": str(e)}
+    finally:
+        if db:
+            await db.close()
+
+
 @celery_app.task(bind=True, base=BaseTaskWithRetry, max_retries=3, queue='default')
 def cleanup_old_data(self):
     return asyncio.run(_cleanup_async())
@@ -455,7 +494,7 @@ async def _send_trends_summary_email(settings, results: dict) -> None:
         <li><strong>Errors:</strong> {results.get('errors', 0)}</li>
     </ul>
 
-    <p>Review keywords at: <a href="https://reelforgeai-marketing.onrender.com/keywords">/keywords</a></p>
+    <p>Review keywords with <code>GET /keywords</code> on the marketing service (requires the <code>X-Admin-Key</code> header).</p>
 
     <p style="color: #666; font-size: 12px;">
         This report was generated automatically by ReelForge Marketing Engine using Google Trends data.

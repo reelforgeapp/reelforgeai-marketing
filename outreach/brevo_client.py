@@ -26,7 +26,8 @@ class BrevoClient:
         html_content: str,
         text_content: str = None,
         reply_to: str = None,
-        tags: list = None
+        tags: list = None,
+        headers: dict = None
     ) -> dict:
         try:
             payload = {
@@ -47,6 +48,9 @@ class BrevoClient:
 
             if tags:
                 payload["tags"] = tags
+
+            if headers:
+                payload["headers"] = headers
 
             response = await self.http_client.post(
                 f"{self.BASE_URL}/smtp/email",
