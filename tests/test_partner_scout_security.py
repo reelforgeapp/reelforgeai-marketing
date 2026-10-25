@@ -130,3 +130,9 @@ async def test_webhook_accepts_each_supported_credential(client, headers):
 async def test_webhook_rejects_malformed_basic_auth(client):
     r = await client.post("/webhooks/brevo", content=EVENT, headers={"Authorization": "Basic !!!not-base64"})
     assert r.status_code == 401
+
+
+async def test_root_redirects_to_the_rpi_dashboard(client):
+    r = await client.get("/", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/rpi/ui"
+    assert (await client.get("/health")).status_code != 307  # Render's health check is unaffected
