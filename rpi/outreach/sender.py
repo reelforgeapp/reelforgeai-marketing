@@ -97,13 +97,71 @@ def _linkify(escaped: str) -> str:
     return re.sub(r"https?://[^\s<>\"]+", link, escaped)
 
 
+BRAND_TEAL = "#5EEAD4"  # RF monogram border (reelforge-ai frontend/public/icon.svg)
+LINK_TEAL = "#0F766E"  # readable teal for links on white
+
+
+def _signature_parts(settings_row: dict) -> dict:
+    s = get_settings()
+    company = "ReelForge AI"
+    title = (s.rpi_signature_title or "").strip()
+    website = (s.rpi_signature_website or "").strip()
+    return {"name": settings_row["sender_name"], "role": f"{title}, {company}" if title else company,
+            "website": website, "website_label": re.sub(r"^https?://(www\.)?", "", website).rstrip("/"),
+            "email": settings_row["sender_email"], "logo": (s.rpi_signature_logo_url or "").strip()}
+
+
+def signature_text(settings_row: dict) -> str:
+    sig = _signature_parts(settings_row)
+    contact = " · ".join(x for x in (sig["website_label"], sig["email"]) if x)
+    return "\n".join(x for x in (sig["name"], sig["role"], contact) if x)
+
+
+def signature_html(settings_row: dict) -> str:
+    """Logo, name, role and contact line; a table so every email client lays it
+    out the same. The logo has alt text and the rest is text, so it still reads
+    when images are blocked."""
+    sig = {k: html.escape(v) for k, v in _signature_parts(settings_row).items()}
+    link = f'color:{LINK_TEAL};text-decoration:none'
+    logo = (f'<td style="padding:0 14px 0 0;vertical-align:middle">'
+            f'<a href="{sig["website"] or "#"}"><img src="{sig["logo"]}" width="48" height="48" alt="ReelForge AI" '
+            f'style="display:block;border:0;outline:none;border-radius:10px"></a></td>') if sig["logo"] else ""
+    contact = " <span style=\"color:#9ca3af\">&middot;</span> ".join(
+        x for x in ((f'<a href="{sig["website"]}" style="{link}">{sig["website_label"]}</a>' if sig["website"] else ""),
+                    (f'<a href="mailto:{sig["email"]}" style="{link}">{sig["email"]}</a>' if sig["email"] else "")) if x)
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:4px 0 0">'
+        f'<tr>{logo}<td style="padding:2px 0 2px 14px;border-left:2px solid {BRAND_TEAL};vertical-align:middle;'
+        f'font-family:{FONT_STACK};font-size:14px;line-height:1.45;color:#1f2328">'
+        f'<div style="font-weight:600;font-size:15px">{sig["name"]}</div>'
+        f'<div style="color:#4b5563">{sig["role"]}</div><div>{contact}</div></td></tr></table>'
+    )
+
+
+def _without_signed_name(body: str, sender_name: str) -> list[str]:
+    """Body paragraphs with a trailing sign-off name removed (the signature
+    block replaces it); a closing such as "Best," above the name is kept."""
+    paragraphs = [p.strip() for p in body.replace("\r\n", "\n").split("\n\n") if p.strip()]
+    if paragraphs and sender_name:
+        lines = paragraphs[-1].split("\n")
+        if lines[-1].strip() == sender_name.strip():
+            closing = "\n".join(lines[:-1]).strip()
+            return paragraphs[:-1] + ([closing] if closing else [])
+    return paragraphs
+
+
+def with_text_signature(body: str, settings_row: dict) -> str:
+    paragraphs = _without_signed_name(body, settings_row["sender_name"])
+    return "\n\n".join(paragraphs + [signature_text(settings_row)])
+
+
 def render_html(body: str, settings_row: dict, link: str, *, test: bool = False) -> str:
     """Email-safe HTML with the same paragraphs as the plain-text body: one
-    column, system font, no images, footer in small grey type. All text is
-    escaped; video titles in drafts come from creators."""
-    paragraphs = [p.strip() for p in body.replace("\r\n", "\n").split("\n\n") if p.strip()]
+    column, system font, the signature block, footer in small grey type. All
+    text is escaped; video titles in drafts come from creators."""
+    paragraphs = _without_signed_name(body, settings_row["sender_name"])
     content = "".join(f'<p style="margin:0 0 16px">{_linkify(html.escape(p)).replace(chr(10), "<br>")}</p>'
-                      for p in paragraphs)
+                      for p in paragraphs) + signature_html(settings_row)
     note = ("<br>(Test send: this link is inactive. The creator&#39;s email carries a working one.)" if test else "")
     footer = (
         '<hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px">'
@@ -129,7 +187,8 @@ def message_fields(settings_row: dict, body: str, draft_id: str, public_base_url
         "sender_name": settings_row["sender_name"], "sender_email": settings_row["sender_email"],
         "reply_to": settings_row["sender_email"],
         "html_content": render_html(body, settings_row, link, test=test),
-        "text_content": body + compliance_footer(settings_row, draft_id, public_base_url, test=test),
+        "text_content": with_text_signature(body, settings_row)
+                        + compliance_footer(settings_row, draft_id, public_base_url, test=test),
         "headers": {"List-Unsubscribe": f"<{link}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"},
     }
 
