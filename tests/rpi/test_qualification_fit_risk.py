@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from rpi.audience_intelligence.fit import DEFAULT_ICPS, AudienceEvidence, score_icp
 from rpi.audience_intelligence.quality import SCREENING_LABEL, SnapshotStat, VideoStats, screen
 from rpi.core.provenance import MeasurementType
@@ -52,7 +54,7 @@ def base_input(**kw):
         niche_relevance=Sourced(0.95, "creatordb", "content_inferred"), classification_confidence=0.9,
         best_icp_fit=Sourced(0.8, None, "mixed"), icp_completeness=0.8,
         last_upload_at=NOW - timedelta(days=3), uploads_last_90d=12, activity_provider="creatordb",
-        subscribers=400_000, subscribers_provider="creatordb", relevant_sponsorships=1, competitor_conflict=False,
+        subscribers=400_000, subscribers_provider="creatordb", relevant_sponsorships=1,
         expected_fee_usd=None, risk_level="no_flags", scoring_allowed={"creatordb": True},
     )
     defaults.update(kw)
@@ -81,3 +83,44 @@ def test_niche_mismatch_rejected_only_when_confident():
 def test_elevated_risk_blocks_recommend():
     r = score(base_input(risk_level="elevated_review"), now=NOW)
     assert r.recommendation != "recommend"
+
+
+def test_recent_competitor_deal_is_a_flag_not_a_penalty():
+    plain = score(base_input(), now=NOW)
+    flagged = score(base_input(recent_competitor_deals=["InVideo (paid, 2026-10-17)"]), now=NOW)
+    assert flagged.overall == plain.overall and flagged.recommendation == plain.recommendation
+    assert flagged.components["commercial_fit"]["flags"] == ["check exclusivity before outreach: InVideo (paid, 2026-10-17)"]
+    assert any("exclusivity" in r for r in flagged.reasons)
+
+
+def test_sponsor_saturation_and_sponsored_view_ratio():
+    base = score(base_input(), now=NOW).components["commercial_fit"]["value"]
+    light = score(base_input(sponsored_share=0.2, sponsored_sample=10), now=NOW).components["commercial_fit"]
+    heavy = score(base_input(sponsored_share=0.4, sponsored_sample=10), now=NOW).components["commercial_fit"]
+    saturated = score(base_input(sponsored_share=0.7, sponsored_sample=10), now=NOW).components["commercial_fit"]
+    too_few = score(base_input(sponsored_share=0.7, sponsored_sample=3), now=NOW).components["commercial_fit"]
+    assert light["value"] == base and "20% of 10 recent videos sponsored" in light["detail"]
+    assert heavy["value"] == pytest.approx(base - 0.1) and saturated["value"] == pytest.approx(base - 0.2)
+    assert too_few["value"] == base  # not judged on fewer than 5 videos
+    tunes_out = score(base_input(sponsored_view_ratio=0.4), now=NOW).components["commercial_fit"]
+    holds = score(base_input(sponsored_view_ratio=1.1), now=NOW).components["commercial_fit"]
+    assert tunes_out["value"] == pytest.approx(base - 0.1) and holds["value"] == pytest.approx(base + 0.05)
+
+
+def test_saturation_and_deal_helpers():
+    from rpi.enrichment.service import recent_competitor_deals, sponsor_saturation
+
+    def video(i, views, flag=False, short=False):
+        return {"id": f"v{i}", "views": views, "sponsored_flag": flag, "is_short": short}
+    content = [video(1, 1000, flag=True), video(2, 800), video(3, 4000), video(4, 5000), video(5, 3000),
+               video(6, 200, short=True, flag=True)]
+    s = sponsor_saturation(content, paid_content_ids={"v2"})
+    assert s["sample"] == 5 and s["share"] == 0.4  # v1 (platform flag) and v2 (confirmed paid); shorts ignored
+    assert s["view_ratio"] == pytest.approx(900 / 4000)
+    assert sponsor_saturation([video(1, 10, short=True)], set()) == {"share": None, "sample": 0, "view_ratio": None}
+    spons = [{"brand_name": "InVideo", "overlap": "direct", "relationship_type": "confirmed_paid", "published_at": NOW - timedelta(days=8)},
+             {"brand_name": "InVideo", "overlap": "direct", "relationship_type": "confirmed_paid", "published_at": NOW - timedelta(days=40)},
+             {"brand_name": "Pictory", "overlap": "direct", "relationship_type": "confirmed_paid", "published_at": NOW - timedelta(days=200)},
+             {"brand_name": "CapCut", "overlap": "adjacent", "relationship_type": "confirmed_paid", "published_at": NOW - timedelta(days=3)},
+             {"brand_name": "OpusClip", "overlap": "direct", "relationship_type": "ordinary_mention", "published_at": NOW}]
+    assert recent_competitor_deals(spons, now=NOW) == [f"InVideo (paid, {(NOW - timedelta(days=8)).date().isoformat()})"]

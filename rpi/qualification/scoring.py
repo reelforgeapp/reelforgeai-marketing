@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-SCORING_VERSION = "qual-2026-10-25.1"
+SCORING_VERSION = "qual-2026-10-25.2"
+SATURATION_MIN_VIDEOS = 5
 
 WEIGHTS = {
     "niche_relevance": 0.40,
@@ -49,10 +50,17 @@ class QualificationInput:
     subscribers: Optional[int]
     subscribers_provider: Optional[str]
     relevant_sponsorships: int  # disclosed affiliate / confirmed paid for registry brands
-    competitor_conflict: bool  # active exclusive-looking promotion of a direct competitor
     expected_fee_usd: Optional[float]
     risk_level: str  # no_flags | review_recommended | elevated_review
     scoring_allowed: dict[str, bool] = field(default_factory=dict)
+    # Paid direct-competitor deals in the last 90 days, e.g. "InVideo (paid, 2026-10-17)".
+    # Flagged for an exclusivity check; they do not lower the score.
+    recent_competitor_deals: list[str] = field(default_factory=list)
+    # Sponsor saturation over recent long-form videos (platform flag or confirmed paid).
+    sponsored_share: Optional[float] = None
+    sponsored_sample: int = 0
+    # Median views of sponsored videos / median views of the other recent videos.
+    sponsored_view_ratio: Optional[float] = None
     preferred_min_subs: int = 10_000
     preferred_max_subs: int = 150_000
     preferred_max_fee: float = 1_000.0
@@ -131,9 +139,28 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
     if inp.relevant_sponsorships:
         commercial += min(0.3, 0.15 * inp.relevant_sponsorships)
         detail.append(f"{inp.relevant_sponsorships} relevant software promotion(s)")
-    if inp.competitor_conflict:
-        commercial -= 0.3
-        detail.append("currently promoting a direct competitor")
+    # Saturation thresholds are judgment calls, not calibrated: revisit them
+    # once campaign outcomes exist (see AI_SCORING_AND_EVALUATION.md).
+    if inp.sponsored_share is not None and inp.sponsored_sample >= SATURATION_MIN_VIDEOS:
+        share = f"{inp.sponsored_share:.0%} of {inp.sponsored_sample} recent videos sponsored"
+        if inp.sponsored_share > 0.5:
+            commercial -= 0.2
+            detail.append(share + " (saturated)")
+        elif inp.sponsored_share > 0.3:
+            commercial -= 0.1
+            detail.append(share + " (heavy)")
+        else:
+            detail.append(share)
+    if inp.sponsored_view_ratio is not None:
+        ratio = f"sponsored videos get {inp.sponsored_view_ratio:.0%} of their usual views"
+        if inp.sponsored_view_ratio < 0.6:
+            commercial -= 0.1
+            detail.append(ratio + " (audience tunes out)")
+        elif inp.sponsored_view_ratio >= 0.9:
+            commercial += 0.05
+            detail.append(ratio)
+        else:
+            detail.append(ratio)
     if inp.expected_fee_usd is not None:
         if inp.expected_fee_usd > inp.preferred_max_fee * 2:
             commercial -= 0.2
@@ -142,6 +169,9 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
             commercial += 0.1
             detail.append("expected fee within preferred range")
     add("commercial_fit", round(max(0.0, min(1.0, commercial)), 3), None, "computed", "; ".join(detail) or "no sponsorship evidence")
+    flags = [f"check exclusivity before outreach: {d}" for d in inp.recent_competitor_deals]
+    components["commercial_fit"]["flags"] = flags
+    reasons.extend(flags)
 
     available = {k: c for k, c in components.items() if c["value"] is not None}
     weight = sum(WEIGHTS[k] for k in available)

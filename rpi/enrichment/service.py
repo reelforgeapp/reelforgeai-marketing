@@ -14,6 +14,7 @@ permits it; otherwise the step is skipped with an explicit reason.
 from __future__ import annotations
 
 import json
+from statistics import median
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -199,7 +200,7 @@ class ResearchService:
     async def _content_rows(self, conn, creator_id) -> list[dict]:
         rows = await conn.fetch(
             """SELECT c.id, c.platform_content_id, c.title, c.description, c.url, c.published_at, c.views, c.likes,
-                      c.comments, c.sponsored_flag, c.transcript_excerpt, p.provider
+                      c.comments, c.sponsored_flag, c.is_short, c.transcript_excerpt, p.provider
                FROM rpi_creator_content c JOIN rpi_data_provenance p ON p.id = c.provenance_id
                WHERE c.creator_id = $1 ORDER BY c.published_at DESC NULLS LAST LIMIT 30""", creator_id)
         return [dict(r) for r in rows]
@@ -337,12 +338,13 @@ class ResearchService:
                     creator_id, s["signal_type"], s["severity"], s["value"], s["detail"], json.dumps(risk["data_points"]))
 
         spons = await conn.fetch(
-            """SELECT r.relationship_type, c.overlap, r.published_at FROM rpi_sponsorship_relationships r
+            """SELECT r.brand_name, r.relationship_type, r.content_id, c.overlap, r.published_at
+               FROM rpi_sponsorship_relationships r
                LEFT JOIN rpi_competitors c ON c.id = r.competitor_id WHERE r.creator_id = $1""", creator_id)
         relevant_spons = sum(1 for s in spons if s["relationship_type"] in ("confirmed_paid", "disclosed_affiliate"))
-        recent_cutoff = datetime.now(timezone.utc).timestamp() - 90 * 86400
-        conflict = any(s["overlap"] == "direct" and s["relationship_type"] == "confirmed_paid" and s["published_at"]
-                       and s["published_at"].timestamp() > recent_cutoff for s in spons)
+        recent_deals = recent_competitor_deals(spons, now=datetime.now(timezone.utc))
+        saturation = sponsor_saturation(allowed_content, {str(s["content_id"]) for s in spons
+                                                          if s["relationship_type"] == "confirmed_paid" and s["content_id"]})
         fee_note = await conn.fetchval(
             "SELECT (data->>'fee_usd')::float FROM rpi_notes WHERE creator_id = $1 AND kind = 'sponsorship_request' "
             "ORDER BY created_at DESC LIMIT 1", creator_id)
@@ -369,7 +371,10 @@ class ResearchService:
             subscribers=snap["subscribers"] if snap else None,
             subscribers_provider=snap["provider"] if snap else None,
             relevant_sponsorships=relevant_spons,
-            competitor_conflict=conflict,
+            recent_competitor_deals=recent_deals,
+            sponsored_share=saturation["share"],
+            sponsored_sample=saturation["sample"],
+            sponsored_view_ratio=saturation["view_ratio"],
             expected_fee_usd=fee_note,
             risk_level=risk["level"],
             scoring_allowed={p: self.allowed(p) for p in {content_provider, snap["provider"] if snap else None} if p},
@@ -410,6 +415,32 @@ class ResearchService:
                 except TransitionError:
                     pass
             await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 2) WHERE id = $1", creator_id)
+
+
+def recent_competitor_deals(spons, *, now: datetime, days: int = 90) -> list[str]:
+    """Paid promotions of direct competitors in the last `days`, newest per brand."""
+    latest: dict[str, datetime] = {}
+    for s in spons:
+        at = s["published_at"]
+        if s["overlap"] == "direct" and s["relationship_type"] == "confirmed_paid" and at and now - at <= timedelta(days=days):
+            latest[s["brand_name"]] = max(at, latest.get(s["brand_name"], at))
+    return [f"{brand} (paid, {at.date().isoformat()})" for brand, at in sorted(latest.items(), key=lambda kv: kv[1], reverse=True)]
+
+
+def sponsor_saturation(content: list, paid_content_ids: set[str]) -> dict:
+    """Share of recent long-form videos that are paid integrations, and how
+    their median views compare with the creator's other recent videos."""
+    videos = [r for r in content if r["is_short"] is not True]
+    if not videos:
+        return {"share": None, "sample": 0, "view_ratio": None}
+    paid = [r for r in videos if r["sponsored_flag"] or str(r["id"]) in paid_content_ids]
+    organic = [r for r in videos if r not in paid]
+    ratio = None
+    paid_views = [r["views"] for r in paid if r["views"] is not None]
+    organic_views = [r["views"] for r in organic if r["views"] is not None]
+    if len(paid_views) >= 2 and len(organic_views) >= 2 and median(organic_views) > 0:
+        ratio = round(median(paid_views) / median(organic_views), 3)
+    return {"share": round(len(paid) / len(videos), 3), "sample": len(videos), "view_ratio": ratio}
 
 
 def _uuid(v):

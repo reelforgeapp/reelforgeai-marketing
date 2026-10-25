@@ -1,5 +1,15 @@
 # RPI changelog
 
+## 0.1.3 — 2026-10-25
+
+### Competitor promotions and sponsor saturation (scoring qual-2026-10-25.2)
+* A recent paid direct-competitor promotion no longer lowers the score. It raises a "check exclusivity before
+  outreach" flag with the brand and date, shown on the creator page.
+* New commercial-fit signals from the stored recent videos: share of long-form videos that are paid integrations
+  (saturation) and sponsored-video median views versus the creator's other videos. No extra credits.
+* Taxonomy 2026-10-25.2 recognizes current AI video generators (Seedance, Kling, Higgsfield, …); the activity score
+  falls back to stored content dates when the search snapshot has none.
+
 ## 0.1.2 — 2026-10-25
 
 ### Targeted, credit-efficient discovery

@@ -52,12 +52,21 @@ be validated against campaign outcomes before it influences ranking.
 | niche_relevance | 0.40 | computed relevance (content-inferred) |
 | audience_fit | 0.20 | best ICP fit (see below) |
 | activity | 0.15 | upload recency + uploads in 90 days |
-| commercial_fit | 0.15 | relevant software promotions (+), active direct-competitor sponsorship (−), requested fee vs range |
+| commercial_fit | 0.15 | relevant software promotions (+), sponsor saturation (−), sponsored-video view retention (±), requested fee vs range |
 | size_fit | 0.10 | 10k–150k subscribers = 1.0, outside → soft penalty with a floor of 0.4 |
 
 * The overall score is a weighted mean over **available** components; missing or policy-excluded components drop
   out and are listed.
 * Risk penalty: −0.05 for `review_recommended`, −0.15 for `elevated_review`.
+* Commercial fit starts at 0.5. +0.15 per confirmed paid or disclosed affiliate software promotion (max +0.3),
+  including competitors: a creator who has sold a competing tool has an in-market audience and a format that
+  converts. Sponsor saturation over the stored recent long-form videos (CreatorDB `isSponsored` or a confirmed paid
+  detection; judged only with ≥ 5 videos): > 30% sponsored −0.1, > 50% −0.2. Sponsored videos' median views versus
+  the other recent videos: < 60% −0.1, ≥ 90% +0.05. These thresholds are judgment calls to recalibrate against
+  campaign outcomes.
+* A paid promotion of a **direct** competitor in the last 90 days does not change the score. It adds a flag,
+  "check exclusivity before outreach: <brand> (paid, <date>)", shown on the creator page, because sponsorship
+  contracts often carry a 30–90 day category exclusivity.
 * Confidence = completeness × (0.5 + 0.5 × classification confidence) × (0.6 + 0.4 × ICP completeness).
 * Recommendation: `recommend` (overall ≥ 0.7, niche ≥ 0.6, risk not elevated) · `investigate` (≥ 0.5) · `hold` ·
   `reject_niche_mismatch` (niche < 0.25 with classification confidence ≥ 0.6) · `needs_data`.
