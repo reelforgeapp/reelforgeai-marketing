@@ -43,7 +43,8 @@ async def db_pool():
             pytest.exit(f"refusing to reset database '{name}': test database names must contain 'test'")
         await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
         await conn.execute((ROOT / "database" / "schema.sql").read_text())
-        await conn.execute((ROOT / "database" / "migrations" / "005_rpi_core.sql").read_text())
+        for migration in ("005_rpi_core.sql", "006_rpi_scheduled_sends.sql"):
+            await conn.execute((ROOT / "database" / "migrations" / migration).read_text())
         from scripts.rpi_migrate import seed
 
         await seed(conn)

@@ -19,7 +19,10 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
 6. **Compare** shortlisted creators, then model the economics in the **Profitability Lab** with the creator's
    expected views and requested fee (add the fee as a `sponsorship_request` note so scoring can use it).
 7. **Outreach**: *Draft outreach* → edit → *Send test to me* (only to `RPI_TEST_RECIPIENTS`; the creator is not
-   emailed) → approver *Approve* → *Send* (only if sending is enabled). If Partner
+   emailed) → approver *Approve* → *Send* now, or *Schedule* a time (only if sending is enabled). Scheduled drafts
+   are sent by the worker every 5 minutes once due, inside `RPI_SEND_WINDOW` (default weekdays 09:00–17:00
+   America/New_York), within the daily limit and through every send rule. A refusal that lasts (opt-out, contact
+   spacing, validation) cancels the schedule and shows the reason on the draft. If Partner
    Scout already emailed the creator, the creator page and the draft say so, the draft is written as a follow-up,
    and sending waits until `min_days_between_contacts` after Partner Scout's last email. Partner Scout does not
    record replies; check the inbox before following up.

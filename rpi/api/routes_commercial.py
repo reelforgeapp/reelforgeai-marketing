@@ -516,6 +516,30 @@ async def send(draft_id: str, ctx: RPIContext = Depends(get_ctx), p: Principal =
     return result
 
 
+class ScheduleBody(BaseModel):
+    send_at: Optional[datetime] = None  # timezone-aware; null clears the schedule
+
+
+@router.post("/outreach/drafts/{draft_id}/schedule")
+async def schedule_send(draft_id: str, body: ScheduleBody, ctx: RPIContext = Depends(get_ctx),
+                        p: Principal = Depends(require("approver"))):
+    """Schedule (or clear) the send time of an approved draft. The worker sends
+    it once the time has passed, inside the send window, through every send rule."""
+    if body.send_at is not None and body.send_at.tzinfo is None:
+        raise HTTPException(422, "send_at must include a timezone offset")
+    async with ctx.pool.acquire() as conn:
+        status = await conn.fetchval("SELECT status FROM rpi_outreach_drafts WHERE id = $1", draft_id)
+        if status is None:
+            raise HTTPException(404, "draft not found")
+        if body.send_at is not None and status != "approved":
+            raise HTTPException(409, f"only approved drafts can be scheduled (this one is {status})")
+        await conn.execute("UPDATE rpi_outreach_drafts SET scheduled_send_at = $2, failure_reason = NULL WHERE id = $1",
+                           draft_id, body.send_at)
+        await audit(conn, p.actor, "outreach.scheduled" if body.send_at else "outreach.unscheduled", "outreach_draft",
+                    draft_id, {"send_at": body.send_at.isoformat() if body.send_at else None})
+    return {"id": draft_id, "scheduled_send_at": body.send_at}
+
+
 class TestSendBody(BaseModel):
     to: str = Field(min_length=3, max_length=254)
 

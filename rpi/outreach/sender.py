@@ -18,6 +18,10 @@ Gates (all enforced in code, independent of any model output):
   9. CAN-SPAM: sender identity and postal address configured
  10. exactly-once: status moves approved → sending via compare-and-swap
 
+Scheduled sends (send_due_drafts, run by the worker every few minutes) go
+through send_draft, so every gate above still applies, and only inside the
+configured send window.
+
 Messages go out under the configured sender name/email (reply-to the same
 address) with RFC 8058 one-click unsubscribe headers. test_send() delivers a
 draft only to RPI_TEST_RECIPIENTS, with an inactive unsubscribe link, and
@@ -32,8 +36,9 @@ import hmac
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -343,3 +348,63 @@ async def test_send(pool, draft_id: str, to_email: str, actor: str, send_fn: Sen
     if not result.get("success"):
         return {"sent": False, "reasons": [f"provider error: {str(result.get('error'))[:200]}"]}
     return {"sent": True, "message_id": result.get("message_id"), "to": to}
+
+
+# --------------------------------------------------------------------------
+# Scheduled sends
+# --------------------------------------------------------------------------
+
+SCHEDULER_ACTOR = "scheduler:rpi"
+# Refusals that clear up on their own: keep the schedule and try again later.
+TRANSIENT_REFUSALS = ("daily send limit", "sending is disabled")
+SENT_TODAY_SQL = ("SELECT COUNT(*) FROM rpi_outreach_drafts WHERE status IN ('sent', 'sending') "
+                  "AND sent_at >= date_trunc('day', NOW())")
+
+
+def in_send_window(now: datetime, *, tz: str, window: str, weekdays_only: bool) -> bool:
+    local = now.astimezone(ZoneInfo(tz))
+    start, end = (dtime.fromisoformat(part.strip()) for part in window.split("-"))
+    return (not weekdays_only or local.weekday() < 5) and start <= local.time() <= end
+
+
+async def send_due_drafts(pool, send_fn: SendFn, *, public_base_url: str, now: Optional[datetime] = None,
+                          window_open: Optional[bool] = None) -> dict:
+    """Send approved drafts whose scheduled_send_at has passed, oldest first,
+    within the daily limit. A transient refusal keeps the schedule; any other
+    refusal cancels it and records why."""
+    now = now or datetime.now(timezone.utc)
+    s = get_settings()
+    if window_open is None:
+        window_open = in_send_window(now, tz=s.rpi_send_timezone, window=s.rpi_send_window,
+                                     weekdays_only=s.rpi_send_weekdays_only)
+    if not window_open:
+        return {"status": "outside_window"}
+    async with pool.acquire() as conn:
+        settings_row = await conn.fetchrow("SELECT sending_enabled, daily_send_limit FROM rpi_outreach_settings LIMIT 1")
+        if not settings_row or not settings_row["sending_enabled"]:
+            return {"status": "sending_disabled"}
+        room = settings_row["daily_send_limit"] - await conn.fetchval(SENT_TODAY_SQL)
+        if room <= 0:
+            return {"status": "daily_limit_reached"}
+        due = await conn.fetch(
+            """SELECT id FROM rpi_outreach_drafts WHERE status = 'approved' AND scheduled_send_at IS NOT NULL
+                 AND scheduled_send_at <= $1 ORDER BY scheduled_send_at LIMIT $2""", now, room)
+    results: dict = {"status": "ok", "sent": [], "kept": [], "cancelled": []}
+    for row in due:
+        draft_id = str(row["id"])
+        result = await send_draft(pool, draft_id, SCHEDULER_ACTOR, send_fn, public_base_url=public_base_url)
+        if result.get("sent"):
+            results["sent"].append(draft_id)
+            continue
+        reasons = result.get("reasons", [])
+        if any(t in r for r in reasons for t in TRANSIENT_REFUSALS):
+            results["kept"].append(draft_id)
+            break
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE rpi_outreach_drafts SET scheduled_send_at = NULL, failure_reason = $2
+                   WHERE id = $1 AND status = 'approved'""",
+                draft_id, ("scheduled send refused: " + "; ".join(reasons))[:500])
+            await audit(conn, SCHEDULER_ACTOR, "outreach.schedule_cancelled", "outreach_draft", draft_id, {"reasons": reasons})
+        results["cancelled"].append(draft_id)
+    return results

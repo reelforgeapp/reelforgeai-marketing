@@ -25,8 +25,10 @@ sys.path.insert(0, str(ROOT))
 
 from rpi.sponsorship_intelligence.detection import DEFAULT_COMPETITORS  # noqa: E402
 
-UP = ROOT / "database" / "migrations" / "005_rpi_core.sql"
-DOWN = ROOT / "database" / "migrations" / "005_rpi_core_down.sql"
+MIGRATIONS = ROOT / "database" / "migrations"
+# Applied in order; each file is idempotent.
+UP = [MIGRATIONS / "005_rpi_core.sql", MIGRATIONS / "006_rpi_scheduled_sends.sql"]
+DOWN = [MIGRATIONS / "006_rpi_scheduled_sends_down.sql", MIGRATIONS / "005_rpi_core_down.sql"]
 
 
 async def seed(conn) -> dict:
@@ -74,12 +76,14 @@ async def main() -> None:
         if args.down:
             if input("This drops every rpi_* table, including the ledger. Type DROP RPI to continue: ") != "DROP RPI":
                 sys.exit("aborted")
-            await conn.execute(DOWN.read_text())
-            print("rolled back 005_rpi_core")
+            for path in DOWN:
+                await conn.execute(path.read_text())
+            print("rolled back", ", ".join(p.stem.removesuffix("_down") for p in DOWN))
             return
-        await conn.execute(UP.read_text())
+        for path in UP:
+            await conn.execute(path.read_text())
         result = await seed(conn) if not args.no_import else {"seeded": "skipped"}
-        print("applied 005_rpi_core", result)
+        print("applied", ", ".join(p.stem for p in UP), result)
     finally:
         await conn.close()
 

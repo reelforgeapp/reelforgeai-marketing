@@ -2,8 +2,9 @@
 ReelForge Partner Intelligence - Celery tasks
 
 Scheduled tasks are limited to free, idempotent maintenance (retention,
-commission accrual, reconciliation alerts). Paid research runs only when an
-operator starts a job; nothing on the beat schedule spends provider credits.
+commission accrual, reconciliation alerts) and sending drafts an approver has
+explicitly scheduled. Paid research runs only when an operator starts a job;
+nothing on the beat schedule spends provider credits.
 """
 import sys
 sys.path.insert(0, '/app')
@@ -81,3 +82,27 @@ async def _ledger_checks_async() -> dict:
             return {"commissions_accrued": accrued, "reconciliation_ok": recon["ok"]}
     finally:
         await pool.close()
+
+
+@celery_app.task(bind=True, max_retries=0, queue='default')
+def rpi_send_scheduled(self):
+    # No retry: a draft that was not sent stays scheduled (or is cancelled with a
+    # reason) and the next run picks it up; sends are exactly-once regardless.
+    return asyncio.run(_send_scheduled_async())
+
+
+async def _send_scheduled_async() -> dict:
+    from outreach.brevo_client import BrevoClient
+    from rpi.outreach.sender import send_due_drafts
+
+    settings = get_settings()
+    if not settings.brevo_api_key or not settings.rpi_public_base_url:
+        return {"status": "not_configured"}
+    pool = await get_database_async()
+    try:
+        result = await send_due_drafts(pool, BrevoClient().send_email, public_base_url=settings.rpi_public_base_url)
+    finally:
+        await pool.close()
+    if result.get("sent") or result.get("cancelled"):
+        logger.info("RPI scheduled sends", sent=len(result["sent"]), cancelled=len(result["cancelled"]))
+    return result

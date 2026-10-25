@@ -95,6 +95,12 @@ celery_app.conf.update(
             'schedule': crontab(hour=5, minute=15),
             'options': {'queue': 'default'}
         },
+        # Sends only drafts an approver scheduled, inside the RPI send window
+        'rpi-send-scheduled': {
+            'task': 'tasks.rpi_tasks.rpi_send_scheduled',
+            'schedule': crontab(minute='*/5'),
+            'options': {'queue': 'default'}
+        },
     },
 )
 
