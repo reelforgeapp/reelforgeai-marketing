@@ -43,6 +43,10 @@ class DraftContext:
     competitor_deals: tuple[str, ...] = ()
     # Competitor names and aliases; videos about them are not quoted when others exist.
     avoid_title_terms: tuple[str, ...] = ()
+    # Month of the last Partner Scout email ("February 2026"); drafts then read
+    # as a follow-up. Partner Scout does not record replies, so drafts never
+    # claim the creator did not answer.
+    prior_contact_month: Optional[str] = None
 
 
 def build_grounding(ctx: DraftContext, sender_email: Optional[str]) -> Grounding:
@@ -84,7 +88,12 @@ def template_draft(ctx: DraftContext) -> tuple[str, str]:
     video = videos[0] if videos else None
     subject = f"Partnership idea for your {_topic(ctx)} content"
     lines = [f"Hi {name},", ""]
-    if video:
+    if ctx.prior_contact_month:
+        lines.append(f"We emailed you about ReelForge AI in {ctx.prior_contact_month}, so this is one short "
+                     "follow-up with specific terms.")
+        if video:
+            lines.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does.")
+    elif video:
         lines.append(f"Your video \"{video['title']}\" is closely aligned with what ReelForge AI does, which is why I'm reaching out.")
     lines.append(
         "ReelForge AI turns a prompt or niche into finished short-form videos, including script, visuals, "
@@ -135,7 +144,9 @@ def draft_system_prompt() -> str:
         "- Do not include any email address.\n"
         "- Sign with the sender name given in FACTS.\n"
         "- If FACTS lists ask_about_exclusivity_with, say that a recent video was sponsored by that brand and ask "
-        "whether the creator has a category exclusivity with it and when it ends.\n\n" + DATA_HANDLING_RULES
+        "whether the creator has a category exclusivity with it and when it ends.\n"
+        "- If FACTS gives previous_contact, open by saying briefly that we wrote before and this is a short follow-up. "
+        "Never present the email as a first contact.\n\n" + DATA_HANDLING_RULES
     )
 
 
@@ -159,6 +170,8 @@ async def generate(llm: Optional[LLM], price: Optional[ModelPrice], ctx: DraftCo
             "creator_topics": [LABEL_BY_KEY[l].name for l in ctx.primary_labels if l in LABEL_BY_KEY],
             "request_audience_data": ctx.request_audience_data,
             "ask_about_exclusivity_with": list(ctx.competitor_deals),
+            "previous_contact": (f"ReelForge AI emailed this creator before, last in {ctx.prior_contact_month}; "
+                                 "whether they replied is unknown, so do not say they did not") if ctx.prior_contact_month else None,
         }
         wrapped = wrap_items([(v["ref"], f"VIDEO TITLE: {v['title']}") for v in (citable_videos(ctx) or ctx.videos)[:5]])
         user = "FACTS (trusted, from ReelForge):\n" + json.dumps(facts, indent=2) + \

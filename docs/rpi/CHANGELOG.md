@@ -1,5 +1,12 @@
 # RPI changelog
 
+## 0.1.6 — 2026-10-25
+
+* RPI accounts for Partner Scout's email history (`rpi/crm/contact_history.py`), matched by linked prospect,
+  YouTube channel or email. The contact-frequency send gate counts Partner Scout's last email, the creator page
+  and the draft panel show the history, and drafts for previously emailed creators open as a short follow-up.
+  Partner Scout does not record replies, so drafts never claim the creator did not answer.
+
 ## 0.1.5 — 2026-10-25
 
 * The automatic research funnel screens only creators an RPI discovery run preliminarily qualified. The 1,822

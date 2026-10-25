@@ -18,6 +18,7 @@ from rpi.api.deps import get_ctx, require
 from rpi.api.serialize import clean, jsonb
 from rpi.core.audit import audit
 from rpi.crm import suppression
+from rpi.crm.contact_history import partner_scout_history
 from rpi.crm.pipeline import Status, TransitionError, transition
 from rpi.enrichment.service import creator_competitor_deals
 from rpi.financial_ledger.ledger import add_entry
@@ -418,6 +419,8 @@ async def create_draft(creator_id: str, body: DraftBody, ctx: RPIContext = Depen
                 creator_id)
         labels = jsonb(cls["labels"]) or {}
         deals = await creator_competitor_deals(conn, creator_id, now=datetime.now(timezone.utc))
+        contact_email = await conn.fetchval("SELECT value FROM rpi_creator_contacts WHERE id = $1", contact["id"]) if contact else None
+        prior = await partner_scout_history(conn, creator_id, email=contact_email)
         months = ctx.program.duration_months
         dctx = DraftContext(
             creator_id=creator_id, creator_name=creator["display_name"],
@@ -430,9 +433,12 @@ async def create_draft(creator_id: str, body: DraftBody, ctx: RPIContext = Depen
             competitor_deals=tuple(brand for brand, _ in deals),
             avoid_title_terms=tuple(n for row in await conn.fetch("SELECT name, aliases FROM rpi_competitors WHERE active")
                                     for n in (row["name"], *row["aliases"]) if n),
+            prior_contact_month=prior.last_contacted_at.strftime("%B %Y") if prior and prior.last_contacted_at else None,
         )
         draft = await generate(ctx.llm if body.use_claude else None, ctx.fast_price, dctx,
                                sender_email=settings_row["sender_email"] if settings_row else None)
+        if prior:
+            draft["grounding"]["prior_contact"] = prior.as_dict()
         async with conn.transaction():
             draft_id = await save_draft(conn, creator_id, contact["id"] if contact else None, draft, p.actor)
     return clean({"id": draft_id, **draft, "contact_id": str(contact["id"]) if contact else None})
