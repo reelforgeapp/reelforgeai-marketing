@@ -246,3 +246,27 @@ async def test_youtube_scrub_clears_old_statistics_only(db):
     assert old["email"] == "old@example.test" and old["status"] == "unsubscribed" and old["full_name"] == "Old Channel"
     assert new["youtube_subscribers"] == 20000
     assert await db.execute(SCRUB_YOUTUBE_SQL, 30) == "UPDATE 0"  # idempotent
+
+
+async def test_brevo_payload_omits_empty_recipient_name(settings, monkeypatch):
+    from outreach import brevo_client
+
+    sent = []
+
+    class Recorder:
+        async def post(self, url, json):
+            sent.append(json)
+
+            class R:
+                status_code = 201
+
+                def json(self):
+                    return {"messageId": "<m@test>"}
+            return R()
+
+    monkeypatch.setattr(brevo_client, "get_brevo_client", lambda key: Recorder())
+    client = brevo_client.BrevoClient()
+    assert (await client.send_email("a@example.com", "", "s", "<p>x</p>", sender_name="Larry", sender_email="m@ex.io"))["success"]
+    assert sent[-1]["to"] == [{"email": "a@example.com"}] and sent[-1]["sender"] == {"name": "Larry", "email": "m@ex.io"}
+    await client.send_email("b@example.com", "Sam", "s", "<p>x</p>")
+    assert sent[-1]["to"] == [{"email": "b@example.com", "name": "Sam"}]

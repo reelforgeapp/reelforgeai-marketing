@@ -37,7 +37,8 @@ class BrevoClient:
                     "name": sender_name or self.settings.brevo_sender_name,
                     "email": sender_email or self.settings.brevo_sender_email
                 },
-                "to": [{"email": to_email, "name": to_name}],
+                # Brevo rejects an empty recipient name ("name is missing in to").
+                "to": [{"email": to_email, **({"name": to_name} if to_name else {})}],
                 "subject": subject,
                 "htmlContent": html_content
             }
