@@ -19,6 +19,7 @@ celery_app = Celery(
         'tasks.enrichment_tasks',
         'tasks.outreach_tasks',
         'tasks.maintenance_tasks',
+        'tasks.rpi_tasks',
     ]
 )
 
@@ -81,6 +82,17 @@ celery_app.conf.update(
         'keyword-trends-monthly': {
             'task': 'tasks.maintenance_tasks.analyze_keyword_trends',
             'schedule': crontab(day_of_month=1, hour=3, minute=0),  # 1st of each month at 3 AM UTC
+            'options': {'queue': 'default'}
+        },
+        # Partner Intelligence: free maintenance only (no paid provider calls)
+        'rpi-retention-daily': {
+            'task': 'tasks.rpi_tasks.rpi_enforce_retention',
+            'schedule': crontab(hour=4, minute=30),
+            'options': {'queue': 'default'}
+        },
+        'rpi-ledger-checks-daily': {
+            'task': 'tasks.rpi_tasks.rpi_daily_ledger_checks',
+            'schedule': crontab(hour=5, minute=15),
             'options': {'queue': 'default'}
         },
     },

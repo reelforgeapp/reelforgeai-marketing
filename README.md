@@ -2,6 +2,11 @@
 
 Automated affiliate marketing system for recruiting content creators who review AI video tools.
 
+> **ReelForge Partner Intelligence (RPI)** — influencer discovery, qualification, partnership CRM, controlled
+> outreach, attribution and profit reporting — lives in `rpi/` and is served from this app at `/rpi/ui` and
+> `/rpi/api/v1`. Start with [docs/rpi/README.md](docs/rpi/README.md). Schema: `python -m scripts.rpi_migrate`.
+> Tests: `pip install -r requirements-dev.txt && pytest`.
+
 ## Features
 
 - **Multi-Platform Discovery**: YouTube, Instagram, TikTok creator discovery

@@ -92,6 +92,71 @@ class Settings(BaseSettings):
     # Application
     environment: str = Field(default="development")
     admin_api_key: str = Field(default="change-me-in-production")
+
+    # =========================================================
+    # Partner Intelligence (RPI) - see docs/rpi/
+    # =========================================================
+    # Bootstrap admin key for /rpi (hashed on use; create real principals via scripts/rpi_create_key.py)
+    rpi_bootstrap_admin_key: str = Field(default="")
+
+    # Providers (server-side only; never sent to clients or prompts)
+    creatordb_api_key: str = Field(default="")
+    creatordb_base_url: str = Field(default="https://apiv3.creatordb.app")
+    creatordb_usd_per_credit: float = Field(default=0.0)  # set from your CreatorDB plan
+    creatordb_rate_per_second: float = Field(default=5.0)
+    # Comma list of endpoint keys confirmed with scripts/rpi_verify_creatordb.py
+    # (search,audience,sponsorship,content,contact). "profile" is verified from docs.
+    creatordb_verified_endpoints: str = Field(default="")
+    # Set only after reviewing CreatorDB terms for derived scoring / AI analysis.
+    rpi_creatordb_scoring_permitted: bool = Field(default=False)
+    sparktoro_api_key: str = Field(default="")
+    sparktoro_usd_per_credit: float = Field(default=0.0)
+    sparktoro_rate_per_second: float = Field(default=0.9)  # docs: 60 req/min on paid plans
+    supadata_api_key: str = Field(default="")
+    supadata_usd_per_request: float = Field(default=0.0)
+    # YouTube Analytics OAuth: disabled until legal review of Developer Policies III.E.3(b).
+    rpi_youtube_analytics_enabled: bool = Field(default=False)
+    google_oauth_client_id: str = Field(default="")
+    google_oauth_client_secret: str = Field(default="")
+    google_oauth_redirect_uri: str = Field(default="")
+    rpi_token_encryption_key: str = Field(default="")  # Fernet key for OAuth tokens
+    # Synthetic fixture provider for local development; refused when environment=production.
+    rpi_enable_fixture_provider: bool = Field(default=False)
+
+    # Claude (RPI analysis). Prices are per million tokens; confirm against
+    # current Anthropic pricing before relying on spend reports.
+    rpi_claude_fast_model: str = Field(default="claude-haiku-5-5")
+    rpi_claude_deep_model: str = Field(default="claude-sonnet-5-5")
+    rpi_claude_fast_input_usd_per_mtok: float = Field(default=1.0)
+    rpi_claude_fast_output_usd_per_mtok: float = Field(default=5.0)
+    rpi_claude_deep_input_usd_per_mtok: float = Field(default=3.0)
+    rpi_claude_deep_output_usd_per_mtok: float = Field(default=15.0)
+
+    # Spending policy
+    rpi_max_cost_per_creator_usd: float = Field(default=1.50)
+    rpi_default_job_budget_usd: float = Field(default=10.0)
+
+    # Funnel stage sizes (directive section 9; all configurable)
+    rpi_stage1_discover: int = Field(default=1000)
+    rpi_stage2_screen: int = Field(default=200)
+    rpi_stage3_analyze: int = Field(default=50)
+    rpi_stage4_qualify: int = Field(default=25)
+    rpi_stage5_recommend: int = Field(default=10)
+
+    # Affiliate program terms (see KNOWN_LIMITATIONS: public pages disagree)
+    rpi_affiliate_commission_rate: float = Field(default=0.30)
+    rpi_affiliate_commission_months: Optional[int] = Field(default=None)  # None = customer lifetime
+    rpi_affiliate_attribution_days: int = Field(default=60)
+
+    # Attribution & billing
+    rpi_public_base_url: str = Field(default="")  # used in unsubscribe links, e.g. https://reelforge-marketing.onrender.com
+    rpi_stripe_webhook_secret: str = Field(default="")
+    rpi_stripe_price_plan_map: str = Field(default="{}")  # JSON {"price_...": "creator"}
+    rpi_stripe_webhook_tolerance_seconds: int = Field(default=300)
+    rpi_attribution_hash_salt: str = Field(default="")
+    posthog_api_key: str = Field(default="")
+    posthog_host: str = Field(default="https://us.i.posthog.com")
+    rpi_posthog_requires_consent: bool = Field(default=True)
     
     # Constants
     SECONDS_PER_DAY: int = 86400

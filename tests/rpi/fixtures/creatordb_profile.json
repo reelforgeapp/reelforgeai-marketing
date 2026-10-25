@@ -1,0 +1,18 @@
+{
+  "_comment": "Sanitized fixture shaped after the documented POST /youtube/profile request (body {channelId}). Field names other than channelId are PROVISIONAL (see rpi/providers/creatordb.py CREATORDB_FIELDS) until verified with scripts/rpi_verify_creatordb.py.",
+  "data": {
+    "channelId": "UCFIXTURE000001",
+    "channelName": "Example Faceless Lab",
+    "customUrl": "@examplefacelesslab",
+    "description": "Faceless YouTube automation and AI Shorts tutorials.",
+    "country": "US",
+    "language": "en",
+    "subscribers": 48200,
+    "avgViews": 9100.5,
+    "engagementRate": 0.041,
+    "totalVideos": 212,
+    "lastPublishTime": "2026-10-20T15:00:00Z",
+    "videosLast90Days": 14,
+    "categories": ["Education", "Technology"]
+  }
+}

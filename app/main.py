@@ -19,10 +19,13 @@ import structlog
 from app.config import get_settings
 from app.database import init_database, close_database, get_database_async
 
+from rpi.core.redaction import structlog_redactor
+
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
+        structlog_redactor,
         structlog.processors.JSONRenderer()
     ]
 )
@@ -49,6 +52,11 @@ async def lifespan(app: FastAPI):
 APP_VERSION = "4.13.0"
 
 app = FastAPI(title="ReelForge Marketing Engine", version=APP_VERSION, lifespan=lifespan)
+
+# ReelForge Partner Intelligence (docs/rpi/): /rpi/api/v1, /rpi/public, /rpi/ui
+from rpi.api.router import mount as mount_rpi
+
+mount_rpi(app)
 
 
 DEFAULT_ADMIN_API_KEY = "change-me-in-production"
@@ -309,6 +317,16 @@ async def brevo_webhook(request: Request, body: bytes = Depends(validate_brevo_w
                                 WHERE prospect_id IN (SELECT id FROM marketing_prospects WHERE email = $1)
                                 AND status IN ('pending', 'active')
                             """, email)
+
+        # RPI outreach messages (additive; failures never affect the legacy path above)
+        try:
+            from app import database
+            from rpi.outreach.events import handle_brevo_event
+
+            if database._app_pool is not None:
+                await handle_brevo_event(database._app_pool, payload)
+        except Exception as rpi_error:
+            logger.error("RPI Brevo event handling failed", error=str(rpi_error))
 
         return {"status": "processed", "event": event_type}
     except json.JSONDecodeError:
