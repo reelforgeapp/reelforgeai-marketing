@@ -23,7 +23,7 @@ from rpi.crm.pipeline import Status, TransitionError, transition
 from rpi.enrichment.service import creator_competitor_deals
 from rpi.financial_ledger.ledger import add_entry
 from rpi.outreach.drafts import DraftContext, generate, save_draft
-from rpi.outreach.sender import send_draft
+from rpi.outreach.sender import send_draft, test_send
 from rpi.profit_modeling import defaults
 from rpi.profit_modeling.actuals import inputs_from_ledger
 from rpi.profit_modeling.deals import candidate_structures, compare_deals
@@ -514,6 +514,31 @@ async def send(draft_id: str, ctx: RPIContext = Depends(get_ctx), p: Principal =
     if not result.get("sent"):
         raise HTTPException(403 if any("disabled" in r for r in result.get("reasons", [])) else 409, result)
     return result
+
+
+class TestSendBody(BaseModel):
+    to: str = Field(min_length=3, max_length=254)
+
+
+@router.post("/outreach/drafts/{draft_id}/test-send")
+async def send_test(draft_id: str, body: TestSendBody, ctx: RPIContext = Depends(get_ctx),
+                    p: Principal = Depends(require("approver"))):
+    """Send the draft to an approved internal address only (RPI_TEST_RECIPIENTS)."""
+    if ctx.send_fn is None:
+        raise HTTPException(503, "no email provider configured")
+    if not ctx.settings.rpi_public_base_url:
+        raise HTTPException(503, "RPI_PUBLIC_BASE_URL must be set")
+    allowed = {a.strip().lower() for a in (ctx.settings.rpi_test_recipients or "").split(",") if a.strip()}
+    result = await test_send(ctx.pool, draft_id, body.to, p.actor, ctx.send_fn,
+                             public_base_url=ctx.settings.rpi_public_base_url, allowed_recipients=allowed)
+    if not result.get("sent"):
+        raise HTTPException(409, result)
+    return result
+
+
+@router.get("/outreach/test-recipients")
+async def test_recipients(ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("approver"))):
+    return {"recipients": [a.strip() for a in (ctx.settings.rpi_test_recipients or "").split(",") if a.strip()]}
 
 
 @router.get("/outreach/drafts")

@@ -27,13 +27,15 @@ class BrevoClient:
         text_content: str = None,
         reply_to: str = None,
         tags: list = None,
-        headers: dict = None
+        headers: dict = None,
+        sender_name: str = None,
+        sender_email: str = None
     ) -> dict:
         try:
             payload = {
                 "sender": {
-                    "name": self.settings.brevo_sender_name,
-                    "email": self.settings.brevo_sender_email
+                    "name": sender_name or self.settings.brevo_sender_name,
+                    "email": sender_email or self.settings.brevo_sender_email
                 },
                 "to": [{"email": to_email, "name": to_name}],
                 "subject": subject,

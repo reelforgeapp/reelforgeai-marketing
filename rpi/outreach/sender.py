@@ -17,6 +17,11 @@ Gates (all enforced in code, independent of any model output):
   8. daily send limit not reached
   9. CAN-SPAM: sender identity and postal address configured
  10. exactly-once: status moves approved → sending via compare-and-swap
+
+Messages go out under the configured sender name/email (reply-to the same
+address) with RFC 8058 one-click unsubscribe headers. test_send() delivers a
+draft only to RPI_TEST_RECIPIENTS, with an inactive unsubscribe link, and
+never changes the draft, the CRM record or contact history.
 """
 
 from __future__ import annotations
@@ -58,13 +63,34 @@ def verify_unsubscribe_token(draft_id: str, token: str) -> bool:
     return hmac.compare_digest(unsubscribe_token(draft_id), token or "")
 
 
-def compliance_footer(settings_row: dict, draft_id: str, public_base_url: str) -> str:
-    link = f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{draft_id}?t={unsubscribe_token(draft_id)}"
+def unsubscribe_link(draft_id: str, public_base_url: str) -> str:
+    return f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{draft_id}?t={unsubscribe_token(draft_id)}"
+
+
+# Test sends get a link that does nothing: the real one would unsubscribe the creator.
+TEST_LINK_ID = "TEST-PREVIEW"
+
+
+def compliance_footer(settings_row: dict, draft_id: str, public_base_url: str, *, test: bool = False) -> str:
+    link = (f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{TEST_LINK_ID}" if test
+            else unsubscribe_link(draft_id, public_base_url))
     return (
         "\n\n--\n"
         f"{settings_row['sender_name']} · ReelForge AI\n{settings_row['postal_address']}\n"
         f"Not interested? Reply \"unsubscribe\" or opt out here and we won't contact you again: {link}"
+        + ("\n(Test send: this link is inactive. The creator's email carries a working one.)" if test else "")
     )
+
+
+def message_fields(settings_row: dict, body: str, link: str) -> dict:
+    """Sender identity, HTML/text bodies and one-click unsubscribe headers (RFC 8058)."""
+    return {
+        "sender_name": settings_row["sender_name"], "sender_email": settings_row["sender_email"],
+        "reply_to": settings_row["sender_email"],
+        "html_content": "<p>" + body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>",
+        "text_content": body,
+        "headers": {"List-Unsubscribe": f"<{link}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"},
+    }
 
 
 async def check_gates(conn, draft: dict, contact: Optional[dict], settings_row: dict) -> SendDecision:
@@ -150,9 +176,8 @@ async def send_draft(pool, draft_id: str, actor: str, send_fn: SendFn, *, public
     body = draft["body_text"] + compliance_footer(settings_row, str(draft_id), public_base_url)
     try:
         result = await send_fn(
-            to_email=contact["value"], to_name="", subject=draft["subject"],
-            html_content="<p>" + body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>",
-            text_content=body, tags=["rpi", f"rpi_draft:{draft_id}"],
+            to_email=contact["value"], to_name="", subject=draft["subject"], tags=["rpi", f"rpi_draft:{draft_id}"],
+            **message_fields(settings_row, body, unsubscribe_link(str(draft_id), public_base_url)),
         )
     except Exception as exc:  # network failure after claim
         result = {"success": False, "error": str(exc)}
@@ -179,3 +204,45 @@ async def send_draft(pool, draft_id: str, actor: str, send_fn: SendFn, *, public
             )
             await audit(conn, actor, "outreach.send_failed", "outreach_draft", draft_id, {"error": str(result.get("error"))[:200]})
             return {"sent": False, "reasons": [f"provider error: {str(result.get('error'))[:200]}"]}
+
+
+async def test_send(pool, draft_id: str, to_email: str, actor: str, send_fn: SendFn, *, public_base_url: str,
+                    allowed_recipients: set[str]) -> dict:
+    """Send a draft exactly as the creator would get it, but only to an approved
+    internal address. Works while sending is disabled and before approval; it
+    never touches the draft's status, the creator's CRM record or contact
+    history, and its unsubscribe link is inactive."""
+    to = (to_email or "").strip().lower()
+    reasons = []
+    if not allowed_recipients:
+        reasons.append("no test recipients configured (RPI_TEST_RECIPIENTS)")
+    elif to not in allowed_recipients:
+        reasons.append("recipient is not in RPI_TEST_RECIPIENTS")
+    async with pool.acquire() as conn:
+        draft = await conn.fetchrow("SELECT * FROM rpi_outreach_drafts WHERE id = $1", draft_id)
+        if not draft:
+            return {"sent": False, "reasons": ["draft not found"]}
+        draft = dict(draft)
+        settings_row = dict(await conn.fetchrow("SELECT * FROM rpi_outreach_settings LIMIT 1"))
+        if not settings_row.get("postal_address") or not settings_row.get("sender_email") or not settings_row.get("sender_name"):
+            reasons.append("sender name, sender email and postal address must be configured (CAN-SPAM)")
+        check = validate_draft(draft["subject"], draft["body_text"],
+                               regrounding_from_row(draft, settings_row.get("sender_email")))
+        if not check.ok:
+            reasons.append("draft fails validation: " + "; ".join(check.errors[:3]))
+        if reasons:
+            await audit(conn, actor, "outreach.test_send_refused", "outreach_draft", draft_id, {"reasons": reasons})
+            return {"sent": False, "reasons": reasons}
+    body = draft["body_text"] + compliance_footer(settings_row, str(draft_id), public_base_url, test=True)
+    test_link = f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{TEST_LINK_ID}"
+    try:
+        result = await send_fn(to_email=to, to_name="", subject="[TEST] " + draft["subject"], tags=["rpi", "rpi_test"],
+                               **message_fields(settings_row, body, test_link))
+    except Exception as exc:
+        result = {"success": False, "error": str(exc)}
+    async with pool.acquire() as conn:
+        await audit(conn, actor, "outreach.test_sent" if result.get("success") else "outreach.test_send_failed",
+                    "outreach_draft", draft_id, {"message_id": result.get("message_id"), "error": str(result.get("error") or "")[:200]})
+    if not result.get("success"):
+        return {"sent": False, "reasons": [f"provider error: {str(result.get('error'))[:200]}"]}
+    return {"sent": True, "message_id": result.get("message_id"), "to": to}

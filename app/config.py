@@ -157,6 +157,8 @@ class Settings(BaseSettings):
     rpi_affiliate_attribution_days: int = Field(default=60)
 
     # Attribution & billing
+    # Comma-separated internal addresses allowed to receive RPI test sends.
+    rpi_test_recipients: str = Field(default="")
     rpi_public_base_url: str = Field(default="")  # used in unsubscribe links, e.g. https://reelforge-marketing.onrender.com
     rpi_stripe_webhook_secret: str = Field(default="")
     rpi_stripe_price_plan_map: str = Field(default="{}")  # JSON {"price_...": "creator"}

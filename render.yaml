@@ -42,6 +42,8 @@ services:
         sync: false
       - key: RPI_PUBLIC_BASE_URL
         sync: false
+      - key: RPI_TEST_RECIPIENTS
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: CREATORDB_API_KEY
@@ -111,6 +113,8 @@ services:
       - key: RPI_ATTRIBUTION_HASH_SALT
         sync: false
       - key: RPI_PUBLIC_BASE_URL
+        sync: false
+      - key: RPI_TEST_RECIPIENTS
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
