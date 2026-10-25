@@ -32,6 +32,9 @@ services:
         sync: false
       # Required before any outreach is sent (CAN-SPAM): full postal address for the email footer
       - key: COMPANY_POSTAL_ADDRESS
+      # "false" pauses Partner Scout sequence emails and auto-enrollment (README → Pausing Partner Scout outreach)
+      - key: PARTNER_SCOUT_AUTO_OUTREACH_ENABLED
+        sync: false
       # Partner Intelligence (docs/rpi/DEPLOYMENT_RUNBOOK.md)
       - key: RPI_BOOTSTRAP_ADMIN_KEY
         sync: false
@@ -97,6 +100,9 @@ services:
         sync: false
       # Outreach compliance: footer address and unsubscribe-link signing (must match the web service)
       - key: COMPANY_POSTAL_ADDRESS
+        sync: false
+      # "false" pauses Partner Scout sequence emails and auto-enrollment (README → Pausing Partner Scout outreach)
+      - key: PARTNER_SCOUT_AUTO_OUTREACH_ENABLED
         sync: false
       - key: ADMIN_API_KEY
       # Partner Intelligence (docs/rpi/DEPLOYMENT_RUNBOOK.md)

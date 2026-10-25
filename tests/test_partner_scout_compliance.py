@@ -83,6 +83,19 @@ async def test_sequence_processing_refuses_without_address(settings, monkeypatch
     assert result["status"] == "blocked" and "COMPANY_POSTAL_ADDRESS" in result["reasons"][0]
 
 
+async def test_pause_switch_stops_sequences_and_enrollment(settings, monkeypatch):
+    from tasks import outreach_tasks
+
+    async def no_db():
+        raise AssertionError("database must not be touched while outreach is paused")
+
+    monkeypatch.setattr(settings, "brevo_api_key", "xkeysib-test")
+    monkeypatch.setattr(settings, "partner_scout_auto_outreach_enabled", False)
+    monkeypatch.setattr(outreach_tasks, "get_database_async", no_db)
+    assert (await outreach_tasks._process_sequences_async())["status"] == "paused"
+    assert (await outreach_tasks._auto_enroll_async())["status"] == "paused"
+
+
 # --------------------------------------------------------------------------
 # Copy rules
 # --------------------------------------------------------------------------

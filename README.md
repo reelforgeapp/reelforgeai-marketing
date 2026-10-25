@@ -91,6 +91,7 @@ In Render Web Service → Environment:
 | `BREVO_API_KEY` | ✅ | Brevo dashboard |
 | `BREVO_WEBHOOK_SECRET` | ✅ | Random string (24+ chars); Brevo sends it with every webhook (see step 5). Webhooks are rejected without it, except when `ENVIRONMENT=development` |
 | `ADMIN_API_KEY` | ✅ | Random string (24+ chars). Required in the `X-Admin-Key` header for `/trigger/*`, `/keywords*` and `/tasks/*`. While unset (or left as `change-me-in-production`) those endpoints refuse every request |
+| `PARTNER_SCOUT_AUTO_OUTREACH_ENABLED` | optional (web + worker) | `false` pauses sequence emails and auto-enrollment (see *Pausing Partner Scout outreach*). Default `true` |
 | `COMPANY_POSTAL_ADDRESS` | ✅ (web + worker) | Physical postal address for the email footer (street address, USPS PO box or private mailbox). **No outreach is sent while this is empty** |
 | `PUBLIC_BASE_URL` | Optional | Base URL for unsubscribe links (default `https://reelforgeai-marketing.onrender.com`) |
 | `CLEAROUT_API_KEY` | Recommended | For email verification |
@@ -136,6 +137,23 @@ curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" https://your-app.onrender.com/trig
 | Sequence Processing | Every 15 min | Send emails |
 | Auto-Enrollment | Every 3 hours | Start sequences |
 | YouTube data scrub | Daily 4:45 AM | Clear YouTube statistics older than 30 days (API policy) |
+
+### Pausing Partner Scout outreach
+
+`PARTNER_SCOUT_AUTO_OUTREACH_ENABLED=false` pauses Sequence Processing and Auto-Enrollment, including their
+manual triggers: no sequence email is sent and no prospect is enrolled. Unsubscribe and reply handling, discovery
+and enrichment keep running. Use it while ReelForge Partner Intelligence (`/rpi`) handles creator outreach, so
+the two systems don't email the same creators.
+
+**To turn it back on:**
+
+1. In Render, open **reelforge-marketing** → *Environment*, set `PARTNER_SCOUT_AUTO_OUTREACH_ENABLED` to `true`
+   (or delete it; the default is on). Do the same on **reelforge-worker**.
+2. Choose *Save, rebuild, and deploy* on both services.
+3. Expect a catch-up: sequence steps that came due during the pause are sent on the next 15-minute run, up to
+   the daily send limit. If that matters, check `GET /status` (`pending_sequences`, `active_sequences`) before turning it on.
+
+While paused, worker logs show `Partner Scout automatic outreach paused` every 15 minutes and every 3 hours.
 
 ## API Endpoints
 

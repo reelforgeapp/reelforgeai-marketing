@@ -108,9 +108,15 @@ def process_pending_sequences(self):
     return asyncio.run(_process_sequences_async())
 
 
+PAUSED = {"status": "paused", "reason": "PARTNER_SCOUT_AUTO_OUTREACH_ENABLED is false"}
+
+
 async def _process_sequences_async() -> dict:
     settings = get_settings()
     db = None
+    if not settings.partner_scout_auto_outreach_enabled:
+        logger.info("Partner Scout automatic outreach paused", task="process_pending_sequences")
+        return PAUSED
     
     results = {
         "processed": 0,
@@ -370,6 +376,9 @@ def auto_enroll_prospects(self):
 async def _auto_enroll_async() -> dict:
     settings = get_settings()
     db = None
+    if not settings.partner_scout_auto_outreach_enabled:
+        logger.info("Partner Scout automatic outreach paused", task="auto_enroll_prospects")
+        return PAUSED
     
     results = {"enrolled": 0, "skipped": 0, "errors": 0, "ai_generated": 0}
     
