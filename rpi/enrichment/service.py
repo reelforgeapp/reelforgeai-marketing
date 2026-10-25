@@ -236,16 +236,20 @@ class ResearchService:
     async def _store_provider_sponsorships(self, conn, creator_id, items) -> None:
         from rpi.storage.creators import insert_provenance
 
+        competitors = await self._competitors(conn)
         for s in items:
             label = (s.provider_label or "").lower()
-            rtype = "confirmed_paid" if label in ("paid", "sponsored", "paid_sponsorship") else "possible_promotional"
+            rtype = "confirmed_paid" if label in PROVIDER_PAID_LABELS else "possible_promotional"
+            competitor = match_competitor(s.brand_name, s.brand_domain, competitors)
             prov_id = await insert_provenance(conn, s.provenance)
             await conn.execute(
                 """INSERT INTO rpi_sponsorship_relationships
-                   (creator_id, brand_name, brand_domain, relationship_type, evidence_url, evidence, published_at, source, provenance_id)
-                   VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
+                   (creator_id, brand_name, brand_domain, competitor_id, relationship_type, evidence_url, evidence,
+                    published_at, source, provenance_id)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)
                    ON CONFLICT (creator_id, brand_name, content_id, relationship_type) DO NOTHING""",
-                creator_id, s.brand_name, s.brand_domain, rtype, s.content_url,
+                creator_id, competitor.name if competitor else s.brand_name, s.brand_domain,
+                _uuid(competitor.id) if competitor else None, rtype, s.content_url,
                 json.dumps([{"kind": "provider_field", "ref": s.content_id, "provider": s.provenance.provider,
                              "signal": s.provider_label}]), s.published_at, s.provenance.provider, prov_id,
             )
@@ -415,6 +419,23 @@ class ResearchService:
                 except TransitionError:
                     pass
             await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 2) WHERE id = $1", creator_id)
+
+
+# Provider labels that assert a paid sponsorship. CreatorDB's /youtube/sponsorship
+# lists only videos it identified as sponsored content.
+PROVIDER_PAID_LABELS = {"paid", "sponsored", "paid_sponsorship", "creatordb_detected_sponsorship"}
+
+
+def match_competitor(brand_name: str, brand_domain: Optional[str], competitors: list) -> Optional[Competitor]:
+    """Registry competitor for a provider-reported brand, by name, alias or domain."""
+    name = (brand_name or "").strip().lower()
+    domain = (brand_domain or "").strip().lower()
+    for c in competitors:
+        if name and name in {n.lower() for n in (c.name, *c.aliases)}:
+            return c
+        if domain and any(domain == d or domain.endswith("." + d) for d in c.domains):
+            return c
+    return None
 
 
 def recent_competitor_deals(spons, *, now: datetime, days: int = 90) -> list[str]:

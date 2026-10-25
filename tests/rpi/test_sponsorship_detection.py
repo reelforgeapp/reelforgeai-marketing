@@ -53,3 +53,12 @@ def test_link_rules_ported_from_affiliate_scanner():
     assert classify_link("https://bit.ly/abc").signals == ["shortener"]
     # Dot-boundary suffix match: "blogx.com" is not "x.com"-style host confusion.
     assert classify_link("https://notpxf.io/a").signals == []
+
+
+def test_provider_brands_link_to_the_competitor_registry():
+    from rpi.enrichment.service import PROVIDER_PAID_LABELS, match_competitor
+
+    assert match_competitor("InVideo", None, DEFAULT_COMPETITORS).name == "InVideo"
+    assert match_competitor("invideo ai", "invideo.io", DEFAULT_COMPETITORS).name == "InVideo"  # by domain
+    assert match_competitor("Higgsfield", "higgsfield.ai", DEFAULT_COMPETITORS) is None
+    assert "creatordb_detected_sponsorship" in PROVIDER_PAID_LABELS
