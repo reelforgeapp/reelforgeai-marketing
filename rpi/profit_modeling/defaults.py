@@ -8,7 +8,7 @@ replaces them with ACTUAL values once the billing ledger has data.
 Sources (reelforge-ai repository, read 2026-10-25):
   * backend/config/tiers.js: plan prices (monthly / annual) and video limits
   * docs/ENG-PROPOSAL-CUT-PREMIUM-COGS.md: estimated cost per reel by tier
-  * frontend/src/app/affiliate-terms/page.jsx: 30% recurring, lifetime, 60-day last click
+  * affiliate terms: 30% recurring for 12 months (confirmed by ReelForge 2026-10-25), 60-day window
 """
 
 from __future__ import annotations

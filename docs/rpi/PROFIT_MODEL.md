@@ -73,7 +73,7 @@ the API refuses to mark such a deal `agreed` without a `contract_reference`.
 | Card fees | 2.9% + $0.30 | Assumption (confirm against Stripe) |
 | CTR | 0.4% / 1% / 2% | Assumption |
 | Visit → paid | 1% / 3% / 6% | Assumption |
-| Program terms | 30% recurring, customer lifetime, 60-day window | `/affiliate-terms` page; conflicts with `/affiliates` (12 months, 90 days) |
+| Program terms | 30% recurring for 12 months, 60-day window | Duration confirmed by ReelForge 2026-10-25; window unconfirmed (`/affiliate-terms` 60 days, `/affiliates` 90) |
 
 With these defaults a $500 fixed sponsorship at 20,000 expected views gives about 6 customers in the base case,
 about $144 contribution per customer and about $363 base profit, with a pessimistic loss of about $456. Treat these

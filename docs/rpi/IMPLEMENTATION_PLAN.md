@@ -49,7 +49,7 @@ No implementation named "Partner Scout" exists outside this repository; this rep
 | 5 | Email extraction **scrapes YouTube pages** with Playwright | `discovery/hybrid_email_extractor.py` | High (YouTube ToS) | **Fixed** (PR #2): YouTube pages are never fetched; only creators' own websites |
 | 6 | YouTube API data kept up to 180 days | `tasks/maintenance_tasks.py` purge | Medium (Dev Policies III.E.4: 30 days) | **Fixed** (PR #2): daily scrub clears YouTube statistics after 30 days |
 | 7 | `ANTHROPIC_MODEL` default `claude-3-5-haiku-20241022` is very likely retired, so personalization may silently fall back to templates | `app/config.py` | Low | **Fixed** (PR #2): default is now `claude-haiku-5-5` |
-| 8 | Affiliate terms disagree: `/affiliate-terms` = 30% for customer lifetime, 60-day last click; `/affiliates` = 30% for 12 months, 90-day cookie | reelforge-ai frontend | Medium (contractual) | Pick one; set `RPI_AFFILIATE_COMMISSION_MONTHS` accordingly |
+| 8 | Affiliate terms disagree: `/affiliate-terms` = 30% for customer lifetime, 60-day last click; `/affiliates` = 30% for 12 months, 90-day cookie | reelforge-ai frontend | Medium (contractual) | **Duration decided**: 12 months (2026-10-25), RPI default. `/affiliate-terms` still says lifetime and must be corrected; cookie window (60 vs 90 days) undecided |
 | 9 | Product deploy runs `prisma db push --accept-data-loss` | reelforge-ai `Dockerfile:61` | High for any shared DB | RPI must never use the product database (it does not) |
 | 10 | Product has no analytics/affiliate consent mechanism (PostHog + Reditus load for everyone) | reelforge-ai `layout.jsx` (audit report) | Medium | Add consent; RPI's PostHog bridge stays silent until it exists |
 

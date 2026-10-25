@@ -35,11 +35,10 @@ DOWNSIDE_PENALTY = Decimal("0.5")
 
 @dataclass(frozen=True)
 class ProgramTerms:
-    """Published affiliate program terms. ReelForge's /affiliate-terms page
-    states 30% recurring on net revenue for the customer lifetime, 60-day
-    last-click; the /affiliates page states 12 months and 90 days. The
-    conflict is recorded in docs/rpi/KNOWN_LIMITATIONS.md; the duration is
-    configurable (rpi_affiliate_commission_months, None = lifetime)."""
+    """Affiliate program terms. ReelForge confirmed 30% recurring for 12
+    months on 2026-10-25 (rpi_affiliate_commission_months; None = lifetime).
+    The /affiliate-terms page still says customer lifetime and a 60-day
+    window, and /affiliates says 90 days; see docs/rpi/KNOWN_LIMITATIONS.md."""
 
     rate: Decimal = Decimal("0.30")
     duration_months: Optional[int] = None

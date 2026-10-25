@@ -149,7 +149,8 @@ class Settings(BaseSettings):
 
     # Affiliate program terms (see KNOWN_LIMITATIONS: public pages disagree)
     rpi_affiliate_commission_rate: float = Field(default=0.30)
-    rpi_affiliate_commission_months: Optional[int] = Field(default=None)  # None = customer lifetime
+    # Confirmed by ReelForge on 2026-10-25: 30% recurring for 12 months. None = customer lifetime.
+    rpi_affiliate_commission_months: Optional[int] = Field(default=12)
     rpi_affiliate_attribution_days: int = Field(default=60)
 
     # Attribution & billing

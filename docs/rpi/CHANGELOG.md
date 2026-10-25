@@ -1,5 +1,14 @@
 # RPI changelog
 
+## 0.1.4 — 2026-10-25
+
+* Affiliate commission default is now 30% recurring for 12 months, as confirmed by ReelForge
+  (`RPI_AFFILIATE_COMMISSION_MONTHS=12`). Outreach drafts and profit forecasts use it. The product's
+  `/affiliate-terms` page still says customer lifetime and needs correcting; the cookie window is undecided.
+* Outreach drafts ask about category exclusivity when a creator has a recent paid direct-competitor deal, skip
+  video titles with income claims or about competitors, and greet the channel by name.
+* CreatorDB-reported sponsorships count as paid and are linked to the competitor registry.
+
 ## 0.1.3 — 2026-10-25
 
 ### Competitor promotions and sponsor saturation (scoring qual-2026-10-25.2)

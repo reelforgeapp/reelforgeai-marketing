@@ -12,7 +12,8 @@
 4. **Claude prices unverified.** Spend reports use the configured per-token prices.
 5. **YouTube Analytics display restriction** (Dev Policies III.E.3(b)) needs legal review; the integration is off.
    Analytics report retrieval is not implemented.
-6. **Affiliate term conflict**: lifetime vs 12 months, 60 vs 90 days. RPI defaults to lifetime / 60 days.
+6. **Affiliate terms page out of date**: commission is 30% for 12 months (confirmed 2026-10-25, RPI default), but the
+   product's `/affiliate-terms` page still says customer lifetime. Cookie window undecided (60 vs 90 days); RPI uses 60.
 7. **Product integration** (identify, milestones, Stripe endpoint, cost feed) must be built in reelforge-ai.
 8. **No labeled benchmark.** No accuracy claim is possible until 50–100 channels are manually labeled.
 9. **The documentation fetch outage** during the build left items in API_INTEGRATIONS.md marked unverified.
