@@ -24,6 +24,7 @@ FAMILIARITY_PATTERNS = [
     r"\bI(?:'ve| have) been (?:following|watching|a fan)",
     r"\b(?:big|huge|long[- ]?time) fan\b",
     r"\bI (?:love|loved|enjoy|enjoyed) (?:your|watching)\b",
+    r"\b(?:really |truly )?(?:love|loved|enjoy|enjoyed) (?:what you(?:'re| are)? (?:doing|making|creating)|your (?:content|videos?|channel|style))",
     r"\bgenuinely impressed\b",
 ]
 INCOME_PATTERNS = [
