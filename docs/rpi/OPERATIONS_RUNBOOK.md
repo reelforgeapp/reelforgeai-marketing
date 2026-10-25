@@ -10,7 +10,9 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
    inline; larger runs are queued (Celery `discovery` queue). Review the run's warnings, duplicates, "why
    included" and `matching_in_provider` (how many creators pass every filter).
 3. **Screen** (stage 2): select candidates → *Screen selected*, or `POST /research/funnel` with `screen`/`analyze`
-   sizes (defaults: 25 / 10). Rejected-for-niche creators never receive paid enrichment afterwards.
+   sizes (defaults: 25 / 10). The funnel screens only creators an RPI discovery run preliminarily qualified;
+   creators imported from Partner Scout or added by hand are screened only when selected explicitly.
+   Rejected-for-niche creators never receive paid enrichment afterwards.
 4. **Deep analysis** (stages 3–4): provider sponsorship history, selective transcripts, and a contact lookup for
    recommended creators only. Audience demographics only when `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=true`.
 5. **Review**: creator profile → evidence, provenance tags, missing data, policy exclusions, risk screen.

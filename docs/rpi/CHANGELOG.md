@@ -1,5 +1,11 @@
 # RPI changelog
 
+## 0.1.5 — 2026-10-25
+
+* The automatic research funnel screens only creators an RPI discovery run preliminarily qualified. The 1,822
+  Partner Scout prospects imported by migration 005 (and creators added by hand) are no longer eligible, so the
+  funnel cannot spend 3 CreatorDB credits each screening them; they can still be screened when selected.
+
 ## 0.1.4 — 2026-10-25
 
 * Affiliate commission default is now 30% recurring for 12 months, as confirmed by ReelForge

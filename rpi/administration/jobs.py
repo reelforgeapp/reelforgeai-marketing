@@ -130,12 +130,16 @@ async def _funnel(pool, research, ctx, progress, stages: StageSizes, actor, job_
     screen_n = int(params.get("screen", stages.screen))
     analyze_n = int(params.get("analyze", stages.analyze))
     async with pool.acquire() as conn:
+        # Only creators an RPI discovery run found and preliminarily qualified.
+        # Creators imported from Partner Scout (or added by hand) have no
+        # discovery candidate row and are screened only when selected explicitly.
         to_screen = await conn.fetch(
             """SELECT c.id FROM rpi_creators c
-               LEFT JOIN LATERAL (SELECT MAX(preliminary_score) AS s FROM rpi_discovery_candidates d WHERE d.creator_id = c.id) d ON TRUE
+               JOIN LATERAL (SELECT MAX(preliminary_score) AS s FROM rpi_discovery_candidates d
+                             WHERE d.creator_id = c.id AND d.preliminary_qualified) d ON d.s IS NOT NULL
                WHERE c.pipeline_status = 'discovered' AND c.disqualified_reason IS NULL
                  AND NOT EXISTS (SELECT 1 FROM rpi_qualification_scores q WHERE q.creator_id = c.id)
-               ORDER BY d.s DESC NULLS LAST, c.created_at LIMIT $1""", screen_n)
+               ORDER BY d.s DESC, c.created_at LIMIT $1""", screen_n)
     status, p2 = await _process(pool, research, "screen", [str(r["id"]) for r in to_screen], ctx,
                                 progress.get("screen", {}), actor, job_id)
     progress = {**progress, "screen": p2}
