@@ -74,9 +74,11 @@ async def discovery_run_detail(run_id: str, ctx: RPIContext = Depends(get_ctx), 
         if not run:
             raise HTTPException(404, "run not found")
         cands = await conn.fetch(
-            """SELECT d.*, c.display_name, c.pipeline_status, a.platform_account_id, a.url
+            """SELECT d.*, c.display_name, c.pipeline_status, a.platform_account_id, a.url, snap.subscribers
                FROM rpi_discovery_candidates d JOIN rpi_creators c ON c.id = d.creator_id
                LEFT JOIN LATERAL (SELECT platform_account_id, url FROM rpi_creator_social_accounts s WHERE s.creator_id = c.id LIMIT 1) a ON TRUE
+               LEFT JOIN LATERAL (SELECT subscribers FROM rpi_creator_profile_snapshots p WHERE p.creator_id = c.id
+                                  ORDER BY p.observed_at DESC LIMIT 1) snap ON TRUE
                WHERE d.run_id = $1 ORDER BY d.preliminary_score DESC NULLS LAST LIMIT 1000""", run_id)
     return clean({"run": dict(run) | {k: jsonb(run[k]) for k in ("criteria", "niche_distribution", "strategy_breakdown", "warnings")},
                   "candidates": [dict(c) | {"inclusion_reasons": jsonb(c["inclusion_reasons"]),

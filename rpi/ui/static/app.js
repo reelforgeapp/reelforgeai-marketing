@@ -163,7 +163,9 @@ const views = {
         { label: "", render: r => h("input", { type: "checkbox", checked: state.selected.has(r.creator_id),
           onclick: e => { e.stopPropagation(); e.target.checked ? state.selected.add(r.creator_id) : state.selected.delete(r.creator_id); saveSelected(); } }) },
         { label: "Creator", key: "display_name" }, { label: "Strategy", key: "strategy" }, { label: "Source", key: "source_provider" },
-        { label: "Score", key: "preliminary_score", num: true }, { label: "Duplicate", render: r => r.was_duplicate ? "yes" : "" },
+        { label: "Subscribers", render: r => r.subscribers == null ? "—" : Number(r.subscribers).toLocaleString(), num: true },
+        { label: "Score", render: r => r.preliminary_score == null ? "—" : Number(r.preliminary_score).toFixed(2), num: true },
+        { label: "Duplicate", render: r => r.was_duplicate ? "yes" : "" },
         { label: "Why included", render: r => r.inclusion_reasons.join("; ") }, { label: "Missing", render: r => r.missing_fields.join(", ") || "—" },
       ], d.candidates, r => { location.hash = "#/creator/" + r.creator_id; })));
   },
