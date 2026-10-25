@@ -32,6 +32,36 @@ services:
         sync: false
       # Required before any outreach is sent (CAN-SPAM): full postal address for the email footer
       - key: COMPANY_POSTAL_ADDRESS
+      # Partner Intelligence (docs/rpi/DEPLOYMENT_RUNBOOK.md)
+      - key: RPI_BOOTSTRAP_ADMIN_KEY
+        sync: false
+      - key: RPI_ATTRIBUTION_HASH_SALT
+        sync: false
+      - key: RPI_PUBLIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CREATORDB_API_KEY
+        sync: false
+      - key: CREATORDB_USD_PER_CREDIT
+        sync: false
+      - key: CREATORDB_VERIFIED_ENDPOINTS
+        sync: false
+      - key: RPI_CREATORDB_SCORING_PERMITTED
+        sync: false
+      - key: SPARKTORO_API_KEY
+        sync: false
+      - key: SPARKTORO_USD_PER_CREDIT
+        sync: false
+      - key: SUPADATA_API_KEY
+        sync: false
+      - key: SUPADATA_USD_PER_REQUEST
+        sync: false
+      - key: RPI_STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RPI_STRIPE_PRICE_PLAN_MAP
+        sync: false
+      - key: POSTHOG_API_KEY
         sync: false
 
   - type: worker
@@ -69,6 +99,36 @@ services:
       - key: COMPANY_POSTAL_ADDRESS
         sync: false
       - key: ADMIN_API_KEY
+      # Partner Intelligence (docs/rpi/DEPLOYMENT_RUNBOOK.md)
+      - key: RPI_BOOTSTRAP_ADMIN_KEY
+        sync: false
+      - key: RPI_ATTRIBUTION_HASH_SALT
+        sync: false
+      - key: RPI_PUBLIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CREATORDB_API_KEY
+        sync: false
+      - key: CREATORDB_USD_PER_CREDIT
+        sync: false
+      - key: CREATORDB_VERIFIED_ENDPOINTS
+        sync: false
+      - key: RPI_CREATORDB_SCORING_PERMITTED
+        sync: false
+      - key: SPARKTORO_API_KEY
+        sync: false
+      - key: SPARKTORO_USD_PER_CREDIT
+        sync: false
+      - key: SUPADATA_API_KEY
+        sync: false
+      - key: SUPADATA_USD_PER_REQUEST
+        sync: false
+      - key: RPI_STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RPI_STRIPE_PRICE_PLAN_MAP
+        sync: false
+      - key: POSTHOG_API_KEY
         sync: false
 
 databases:

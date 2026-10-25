@@ -40,3 +40,6 @@ apify-client==1.6.3
 
 # Utilities
 python-dateutil==2.8.2
+
+# Partner Intelligence (RPI): OAuth token encryption (Fernet)
+cryptography==42.0.8

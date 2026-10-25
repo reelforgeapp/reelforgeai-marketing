@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local preview config (contains local-only dev keys)
+.claude/launch.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

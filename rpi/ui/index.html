@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReelForge Partner Intelligence</title>
+  <link rel="stylesheet" href="/rpi/ui/static/styles.css?v=0.1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'">
+</head>
+<body>
+  <!-- This shell contains no data. Every API call requires an X-RPI-Key, kept only in sessionStorage. -->
+  <aside class="nav">
+    <div class="brand">ReelForge<span>Partner Intelligence</span></div>
+    <nav id="nav">
+      <a href="#/dashboard">Executive</a>
+      <a href="#/discovery">Discovery</a>
+      <a href="#/creators">Creators</a>
+      <a href="#/compare">Compare</a>
+      <a href="#/profit">Profitability Lab</a>
+      <a href="#/crm">Partnership CRM</a>
+      <a href="#/outreach">Outreach</a>
+      <a href="#/campaigns">Campaigns</a>
+      <a href="#/admin">Administration</a>
+    </nav>
+    <div class="legend">
+      <div class="legend-title">Data labels</div>
+      <span class="tag observed">observed</span>
+      <span class="tag modeled">modeled estimate</span>
+      <span class="tag inferred">AI / content inferred</span>
+      <span class="tag assumption">assumption</span>
+      <span class="tag synthetic">synthetic</span>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <h1 id="title">Executive dashboard</h1>
+      <div class="auth">
+        <input id="key" type="password" placeholder="X-RPI-Key" autocomplete="off" aria-label="API key">
+        <button id="save-key" type="button">Connect</button>
+        <span id="whoami" class="muted"></span>
+      </div>
+    </header>
+    <div id="flash" role="status" aria-live="polite"></div>
+    <section id="view"></section>
+  </main>
+  <script src="/rpi/ui/static/app.js?v=0.1.4"></script>
+</body>
+</html>
