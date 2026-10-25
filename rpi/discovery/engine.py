@@ -18,6 +18,7 @@ measured over time.
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -30,6 +31,7 @@ from rpi.content_intelligence.prefilter import match_text
 from rpi.content_intelligence.taxonomy import RELEVANT_LABELS
 from rpi.core.audit import audit
 from rpi.crm.suppression import is_suppressed
+from rpi.discovery.presets import describe_applied
 from rpi.identity.store import resolve_after_upsert
 from rpi.providers.base import Capability, CreatorSearchCriteria, NormalizedCreator, ProviderAdapter, ResultStatus
 from rpi.providers.gateway import CallContext, ProviderGateway
@@ -66,14 +68,36 @@ class Candidate:
     strategy: str
     provider: str
     reasons: list[str]
+    # Criteria the provider enforced for this result, and its position in the
+    # provider's sort order (0 = first, 1 = last).
+    applied: frozenset[str] = frozenset()
+    rank: Optional[float] = None
 
 
-def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria) -> tuple[bool, float, list[str], list[str]]:
+ACTIVITY_FILTERS = {"min_uploads_30d", "active_within_days"}
+
+
+def _mostly_non_latin(name: Optional[str]) -> bool:
+    letters = [ch for ch in unicodedata.normalize("NFKC", name or "") if ch.isalpha()]
+    if not letters:
+        return False
+    latin = sum(unicodedata.name(ch, "").startswith("LATIN") for ch in letters)
+    return latin / len(letters) < 0.5
+RELEVANCE_FILTERS = {"niches", "topics", "keywords"}
+
+
+def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria, applied: frozenset[str] = frozenset(),
+                       rank: Optional[float] = None) -> tuple[bool, float, list[str], list[str]]:
     """Cheap stage-1 screen on fields already returned by discovery.
+    A criterion the provider enforced server-side counts as met, labeled as
+    such; `rank` breaks ties in the provider's sort order.
     Returns (qualified, score, reasons, missing)."""
     reasons, missing = [], []
     score = 0.0
-    if c.language is None:
+    if c.language is None and "languages" in applied:
+        score += 0.2
+        reasons.append("language matched provider filter")
+    elif c.language is None:
         missing.append("language")
         score += 0.1
     elif c.language.lower()[:2] in [l.lower()[:2] for l in criteria.languages or ["en"]]:
@@ -82,7 +106,10 @@ def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria) ->
     else:
         return False, 0.0, [f"language {c.language} outside target"], missing
 
-    if c.last_upload_at is None and c.uploads_last_90d is None:
+    if c.last_upload_at is None and c.uploads_last_90d is None and ACTIVITY_FILTERS & applied:
+        score += 0.2
+        reasons.append("recent uploads matched provider filter")
+    elif c.last_upload_at is None and c.uploads_last_90d is None:
         missing.append("recent activity")
         score += 0.1
     elif (c.uploads_last_90d or 0) > 0:
@@ -91,6 +118,10 @@ def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria) ->
     else:
         reasons.append("no recent uploads reported")
 
+    if any(l.lower().startswith("en") for l in criteria.languages) and _mostly_non_latin(c.display_name):
+        # Free check: provider language labels miss many bilingual channels.
+        return False, round(score, 3), reasons + ["display name is mostly non-Latin script; likely not English"], missing
+
     text_match = match_text("profile", c.display_name, " ".join([c.description or "", *c.categories]))
     relevant = set(text_match.labels) & RELEVANT_LABELS
     if relevant:
@@ -98,6 +129,8 @@ def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria) ->
         reasons.append("profile mentions " + ", ".join(sorted(relevant)))
     else:
         missing.append("content evidence")
+        if RELEVANCE_FILTERS & applied:
+            score += 0.3  # provider's niche classification, weaker than our own evidence
 
     if c.subscribers is None:
         missing.append("subscribers")
@@ -105,6 +138,8 @@ def preliminary_screen(c: NormalizedCreator, criteria: CreatorSearchCriteria) ->
         score += 0.2
     if c.country is None:
         missing.append("country")
+    if rank is not None:
+        score += 0.05 * (1 - rank)
     return score >= 0.4, round(score, 3), reasons, missing
 
 
@@ -119,25 +154,31 @@ class DiscoveryEngine:
 
     def estimate(self, request: DiscoveryRequest) -> dict:
         primary = self.primary()
-        lines, total = [], Decimal("0")
+        lines, total, credits = [], Decimal("0"), Decimal("0")
         if primary:
             per_strategy_limit = max(1, request.max_candidates // max(1, len([s for s in request.strategies if s != "audience_first"])))
             for s in request.strategies:
                 if s in ("niche", "competitor_sponsorship", "emerging"):
-                    est = primary.estimate_cost(Capability.SEARCH_CREATORS, limit=per_strategy_limit)
-                    lines.append({"strategy": s, "provider": primary.name, "usd": str(est.usd), "basis": est.basis})
+                    est = primary.estimate_cost(Capability.SEARCH_CREATORS, limit=per_strategy_limit,
+                                                criteria=request.criteria)
+                    lines.append({"strategy": s, "provider": primary.name, "credits": str(est.units), "usd": str(est.usd),
+                                  "basis": est.basis})
                     total += est.usd
+                    credits += est.units
         if "audience_first" in request.strategies:
             spark = self.registry.get("sparktoro")
             if spark:
                 est = spark.estimate_cost(Capability.AUDIENCE_RESEARCH)
                 lines.append({"strategy": "audience_first", "provider": "sparktoro", "usd": str(est.usd), "basis": est.basis})
                 total += est.usd
-        return {"lines": lines, "total_usd": str(total), "primary_provider": primary.name if primary else None}
+        return {"lines": lines, "total_usd": str(total), "total_credits": str(credits),
+                "primary_provider": primary.name if primary else None}
 
     async def _search(self, adapter, criteria: CreatorSearchCriteria, strategy: str, limit: int, ctx: CallContext,
-                      warnings: list[str]) -> list[Candidate]:
+                      warnings: list[str], pools: Optional[dict] = None) -> list[Candidate]:
         out: list[Candidate] = []
+        # Request only as many as needed: a page costs the same at any size,
+        # but every stored candidate is a candidate for paid enrichment.
         page = criteria.model_copy(update={"limit": min(100, limit)})
         while len(out) < limit:
             result = await self.gateway.call(adapter, Capability.SEARCH_CREATORS, page, ctx=ctx)
@@ -146,12 +187,20 @@ class DiscoveryEngine:
                 break
             if result.unapplied_criteria:
                 warnings.append(f"{strategy}: {adapter.name} could not apply {', '.join(result.unapplied_criteria)}")
+            if pools is not None and result.total_available is not None:
+                pools.setdefault(strategy, result.total_available)
+            applied = frozenset(result.applied_criteria)
+            matched = describe_applied(page, result.applied_criteria)
             for c in result.data or []:
-                out.append(Candidate(c, strategy, adapter.name, [f"{strategy} search via {adapter.name}"]))
+                reasons = [f"{strategy} search via {adapter.name}"] + ([f"matched filters: {matched}"] if matched else [])
+                out.append(Candidate(c, strategy, adapter.name, reasons, applied))
             if not result.next_page_token or not result.data:
                 break
             page = page.model_copy(update={"page_token": result.next_page_token})
-        return out[:limit]
+        out = out[:limit]
+        for i, cand in enumerate(out):
+            cand.rank = i / max(1, len(out) - 1)
+        return out
 
     async def run(self, request: DiscoveryRequest, actor: str) -> dict:
         unknown = [s for s in request.strategies if s not in STRATEGIES]
@@ -172,6 +221,7 @@ class DiscoveryEngine:
             )
 
         candidates: list[Candidate] = []
+        pools: dict[str, int] = {}
         search_strategies = [s for s in request.strategies if s in ("niche", "competitor_sponsorship", "emerging")]
         per_limit = max(1, request.max_candidates // max(1, len(search_strategies) or 1))
         if search_strategies and primary is None:
@@ -180,18 +230,20 @@ class DiscoveryEngine:
         for strategy in search_strategies:
             if primary is None:
                 break
+            has_relevance = bool(request.criteria.keywords or request.criteria.topics or request.criteria.niches)
+            default_keywords = request.criteria.keywords or ([] if has_relevance else DEFAULT_NICHE_KEYWORDS)
             if strategy == "niche":
-                crit = request.criteria.model_copy(update={"keywords": request.criteria.keywords or DEFAULT_NICHE_KEYWORDS})
+                crit = request.criteria.model_copy(update={"keywords": default_keywords})
             elif strategy == "emerging":
                 crit = request.criteria.model_copy(update={
-                    "keywords": request.criteria.keywords or DEFAULT_NICHE_KEYWORDS,
+                    "keywords": default_keywords,
                     "min_subscribers": 1_000, "max_subscribers": min(request.criteria.min_subscribers or 15_000, 15_000),
                     "active_within_days": 30,
                 })
             else:
                 names = request.competitor_names or await self._competitor_names()
                 crit = request.criteria.model_copy(update={"sponsored_brands": names, "keywords": []})
-            found = await self._search(primary, crit, strategy, per_limit, ctx, warnings)
+            found = await self._search(primary, crit, strategy, per_limit, ctx, warnings, pools)
             if strategy == "competitor_sponsorship":
                 for c in found:
                     c.reasons.append("associated with competitor brands: " + ", ".join(crit.sponsored_brands[:5]))
@@ -202,7 +254,7 @@ class DiscoveryEngine:
         if "lookalike" in request.strategies:
             warnings.append("lookalike discovery needs outcome data from completed campaigns; not yet available (Milestone 7)")
 
-        return await self._persist(run_id, request, candidates, warnings, estimate, actor)
+        return await self._persist(run_id, request, candidates, warnings, estimate, actor, pools)
 
     async def _competitor_names(self) -> list[str]:
         async with self.pool.acquire() as conn:
@@ -235,7 +287,8 @@ class DiscoveryEngine:
                                      [f"SparkToro: audience '{query[:60]}' pays attention to this channel"]))
         return out
 
-    async def _persist(self, run_id, request, candidates: list[Candidate], warnings, estimate, actor) -> dict:
+    async def _persist(self, run_id, request, candidates: list[Candidate], warnings, estimate, actor,
+                       pools: Optional[dict] = None) -> dict:
         seen: dict[str, str] = {}
         strategy_hits: dict[str, set] = {}
         stats = Counter()
@@ -261,7 +314,7 @@ class DiscoveryEngine:
                         new_creators += 1
                     if await is_suppressed(conn, creator_id=creator_id):
                         cand.reasons.append("on suppression list: will not be contacted")
-                    ok, score, reasons, missing = preliminary_screen(cand.creator, request.criteria)
+                    ok, score, reasons, missing = preliminary_screen(cand.creator, request.criteria, cand.applied, cand.rank)
                     prelim += int(ok and not in_run)
                     labels = match_text("p", cand.creator.display_name, " ".join([cand.creator.description or "", *cand.creator.categories])).labels
                     if not in_run:
@@ -285,6 +338,8 @@ class DiscoveryEngine:
                          for s, v in strategy_hits.items()}
             if "audience_first" in strategy_hits:
                 breakdown["audience_first"]["not_found_by_other_strategies"] = len(strategy_hits["audience_first"] - others)
+            for strategy, total in (pools or {}).items():
+                breakdown.setdefault(strategy, {})["matching_in_provider"] = total
 
             spent = await conn.fetchval(
                 "SELECT COALESCE(SUM(actual_usd), 0) FROM rpi_spend_ledger WHERE job_id = $1 AND status = 'committed'",

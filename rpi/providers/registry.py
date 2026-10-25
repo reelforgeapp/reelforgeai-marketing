@@ -27,11 +27,14 @@ class ProviderRegistry:
     def get(self, name: str) -> Optional[ProviderAdapter]:
         return self.adapters.get(name)
 
-    def first_supporting(self, capability: Capability, prefer: tuple[str, ...] = ()) -> Optional[ProviderAdapter]:
+    def supporting(self, capability: Capability, prefer: tuple[str, ...] = ()) -> list[ProviderAdapter]:
         ordered = [self.adapters[n] for n in prefer if n in self.adapters] + [
             a for n, a in self.adapters.items() if n not in prefer
         ]
-        return next((a for a in ordered if a.is_configured() and a.supports(capability)), None)
+        return [a for a in ordered if a.is_configured() and a.supports(capability)]
+
+    def first_supporting(self, capability: Capability, prefer: tuple[str, ...] = ()) -> Optional[ProviderAdapter]:
+        return next(iter(self.supporting(capability, prefer)), None)
 
     def describe(self) -> list[dict]:
         return [

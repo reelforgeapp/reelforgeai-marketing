@@ -73,7 +73,8 @@ def test_value_gate_rules():
     assert not evaluate(Capability.TRANSCRIPT, state(transcripts_fetched=3)).allowed
     assert not evaluate(Capability.CREATOR_CONTACTS, state(recommendation="hold", funnel_stage=4)).allowed
     assert not evaluate(Capability.CREATOR_CONTACTS, state(funnel_stage=3)).allowed
-    assert evaluate(Capability.CREATOR_CONTACTS, state(funnel_stage=4)).allowed
+    assert not evaluate(Capability.CREATOR_CONTACTS, state(funnel_stage=4)).allowed  # "investigate" is not enough
+    assert evaluate(Capability.CREATOR_CONTACTS, state(funnel_stage=4, recommendation="recommend")).allowed
     fresh = state(last_fetched={"get_creator_content": NOW - timedelta(days=1)})
     assert not evaluate(Capability.CREATOR_CONTENT, fresh, now=NOW).allowed
     assert evaluate(Capability.CREATOR_CONTENT, fresh, now=NOW, force=True).allowed
@@ -114,3 +115,46 @@ def test_first_and_last_touch_within_window():
     r = attribute(touches, signup)
     assert r.first_touch.campaign_id == "a" and r.last_touch.campaign_id == "b" and r.eligible_count == 2
     assert attribute([], signup).first_touch is None
+
+
+def test_preliminary_screen_counts_provider_filters_and_rank():
+    from rpi.core.provenance import MeasurementType, Provenance
+    from rpi.discovery.engine import preliminary_screen
+    from rpi.providers.base import CreatorSearchCriteria, NormalizedCreator
+
+    c = NormalizedCreator(platform="youtube", platform_account_id="UCx", display_name="Some Channel", subscribers=20_000,
+                          provenance=Provenance(provider="creatordb", operation="search_creators", retrieved_at=NOW,
+                                                data_type="creator_profile", measurement=MeasurementType.OBSERVED,
+                                                retention_policy="creatordb:90d"))
+    crit = CreatorSearchCriteria(min_subscribers=10_000, max_subscribers=150_000)
+    _, bare, _, missing = preliminary_screen(c, crit)
+    assert {"language", "recent activity", "content evidence"} <= set(missing)
+    applied = frozenset({"languages", "min_uploads_30d", "niches"})
+    ok, first, reasons, missing = preliminary_screen(c, crit, applied, rank=0.0)
+    _, last, _, _ = preliminary_screen(c, crit, applied, rank=1.0)
+    assert ok and first > last > bare
+    assert "language matched provider filter" in reasons and "language" not in missing
+    assert "content evidence" in missing  # provider niche classification is not our own evidence
+    for name, expect in (("خبير اليوتيوب", False), ("혁신전파사", False), ("𝕋𝕖𝕔𝕙 𝕍𝕚𝕕𝕪𝕒𝕜𝕒𝕝", True), ("Raúl Ordóñez", True)):
+        ok, *_ = preliminary_screen(c.model_copy(update={"display_name": name}), crit, applied)
+        assert ok is expect, name
+
+
+async def test_research_skips_paid_data_it_may_not_score_with():
+    from rpi.enrichment.service import ResearchConfig, ResearchService
+    from rpi.providers.creatordb import CreatorDBAdapter
+    from rpi.providers.registry import ProviderRegistry
+
+    class NoCallGateway:
+        async def call(self, *a, **kw):
+            raise AssertionError("must not pay for unusable data")
+
+    svc = ResearchService(None, ProviderRegistry({"creatordb": CreatorDBAdapter("k")}), NoCallGateway(), None,
+                          ResearchConfig(fast=None, deep=None, creatordb_scoring_permitted=False))
+
+    async def fake_state(conn, creator_id):
+        return state(funnel_stage=3, recommendation="recommend")
+    svc.state = fake_state
+    for cap in (Capability.CREATOR_CONTENT, Capability.SPONSORSHIP_HISTORY, Capability.AUDIENCE_DEMOGRAPHICS):
+        result, note = await svc._paid(None, "c1", cap, ("creatordb",), "UCx", ctx=None)
+        assert result is None and "may not be used for scoring" in note

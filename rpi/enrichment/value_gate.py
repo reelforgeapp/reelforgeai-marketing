@@ -7,7 +7,7 @@ check. Rules mirror the directive's spending policies:
     niche relevance)
   * transcripts only for stage-3+ creators whose classification is
     uncertain, at most a few per creator
-  * no verified-contact lookup until the creator qualifies
+  * no contact lookup (15 CreatorDB credits) unless the creator is recommended
   * no SparkToro outside explicit audience-first runs (enforced in discovery)
   * no re-enrichment of a record fetched within its freshness window
 """
@@ -78,8 +78,8 @@ def evaluate(operation: Capability, state: CreatorState, *, force: bool = False,
             return GateDecision(False, f"transcript limit ({MAX_TRANSCRIPTS_PER_CREATOR}) reached for this creator")
 
     if operation == Capability.CREATOR_CONTACTS:
-        if state.recommendation not in ("recommend", "investigate"):
-            return GateDecision(False, "contacts are retrieved only after the creator qualifies")
+        if state.recommendation != "recommend":
+            return GateDecision(False, "contacts are retrieved only for recommended creators")
         if state.funnel_stage < 4:
             return GateDecision(False, "contacts are retrieved from stage 4 (deep qualification) onward")
 

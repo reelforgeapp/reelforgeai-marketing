@@ -15,7 +15,8 @@ import pytest
 import respx
 
 from rpi.providers.base import Capability, CreatorSearchCriteria, ResultStatus
-from rpi.providers.creatordb import CreatorDBAdapter, build_search_body
+from rpi.discovery.presets import apply_preset
+from rpi.providers.creatordb import CreatorDBAdapter, build_search_body, search_credits
 from rpi.providers.http import CircuitBreaker, ResilientHTTP, full_jitter_backoff
 from rpi.providers.sparktoro import SparkToroAdapter
 
@@ -193,7 +194,7 @@ def test_documented_endpoints_enabled_and_costed():
 
 
 def test_search_filters_translate_criteria():
-    body, unapplied = build_search_body(CreatorSearchCriteria(
+    body, unapplied, applied = build_search_body(CreatorSearchCriteria(
         keywords=["Faceless YouTube", "faceless youtube", "AI shorts!"], languages=["en", "xx"],
         countries=["US", "GB", "ZZ"], min_subscribers=10_000, max_subscribers=150_000, min_avg_views=1000,
         active_within_days=30, niches=["id_aivideo_ScienceTechnology"], limit=500, page_token="200"), now_ms=10**13)
@@ -204,8 +205,37 @@ def test_search_filters_translate_criteria():
     assert f[("avgRecentVideosViews", ">")] == 999
     assert f[("lastPublishTime", ">")] == 10**13 - 30 * 86_400_000
     assert f[("niches", "in")] == ["id_aivideo_ScienceTechnology"]
-    assert body["pageSize"] == 100 and body["offset"] == 200 and body["sortBy"] == "avgRecentVideosViews"
+    assert body["pageSize"] == 100 and body["offset"] == 200 and body["sortBy"] == "medianRecentVideosViews"
     assert unapplied == ["languages:xx", "countries:ZZ"]
+    assert "keywords" in applied and "countries" in applied and "min_avg_views" in applied
+
+
+def test_quality_preset_is_one_credit_of_filters():
+    criteria = apply_preset(CreatorSearchCriteria(), "quality")
+    body, unapplied, applied = build_search_body(criteria)
+    f = {(x["filterName"], x["op"]): x["value"] for x in body["filters"]}
+    assert len(body["filters"]) == 10 and search_credits(len(body["filters"])) == 1
+    assert "#aitools" in f[("hashtags", "in")] and "#faceless" not in f[("hashtags", "in")]
+    assert f[("topics", "in")][0] == "id_ai_ScienceTechnology_youtube" and ("niches", "in") not in f
+    assert f[("mainAudienceLocation", "in")] == ["AUS", "CAN", "GBR", "USA"]
+    assert f[("medianRecentVideosViews", ">")] == 1_999 and f[("contentsIn30Days", ">")] == 1
+    assert f[("avgRecentVideosEngagementRate", ">")] == pytest.approx(0.01995)
+    assert f[("hasEmail", "=")] is True and body["sortBy"] == "medianRecentVideosViews"
+    assert not unapplied
+    broad = build_search_body(apply_preset(CreatorSearchCriteria(), "quality_broad"))[0]["filters"]
+    assert len(broad) == 10 and "id_youtubeshorts_Education" not in next(x["value"] for x in broad if x["filterName"] == "niches")
+    assert adapter().estimate_cost(Capability.SEARCH_CREATORS, criteria=criteria.model_copy(update={"limit": 25})).units == 1
+
+
+def test_preset_yields_to_explicit_fields():
+    mine = apply_preset(CreatorSearchCriteria(keywords=["capcut"], max_subscribers=500_000, audience_countries=[]), "quality")
+    assert mine.niches == [] and mine.topics == [] and mine.keywords == ["capcut"]  # caller chose relevance
+    assert mine.max_subscribers == 500_000 and mine.audience_countries == []
+    assert mine.min_median_views == 2_000 and mine.require_email
+    assert apply_preset(CreatorSearchCriteria(), "quality_broad").niches and not apply_preset(CreatorSearchCriteria(), "quality").niches
+    assert apply_preset(CreatorSearchCriteria(), "none").niches == []
+    with pytest.raises(ValueError):
+        apply_preset(CreatorSearchCriteria(), "bogus")
 
 
 @respx.mock
@@ -222,6 +252,7 @@ async def test_search_pagination_and_sparse_results():
     assert [c.platform_account_id for c in result.data] == ["UCa"]
     assert result.data[0].subscribers == 20_000 and result.data[0].language is None  # not filled from the filter
     assert result.status == ResultStatus.PARTIAL and result.next_page_token == "2"
+    assert result.total_available == 30 and result.applied_criteria == ["keywords", "languages"]
     assert result.cost.units == Decimal("1")
 
 

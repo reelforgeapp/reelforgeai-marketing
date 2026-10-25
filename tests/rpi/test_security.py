@@ -65,7 +65,7 @@ async def test_budget_increase_requires_second_person(api):
 async def test_over_budget_enrichment_is_refused(api):
     async with api.ctx.pool.acquire() as conn:
         await conn.execute("UPDATE rpi_budgets SET limit_usd = 0.01 WHERE scope = 'global' AND period = 'daily'")
-    r = await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"strategies": ["niche", "emerging"], "inline": True,
+    r = await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"preset": "none", "strategies": ["niche", "emerging"], "inline": True,
                                                                         "max_candidates": 200})
     assert r.status_code == 200
     async with api.ctx.pool.acquire() as conn:
@@ -120,7 +120,7 @@ async def test_audit_log_never_contains_secrets(api):
 
 
 async def test_creator_deletion_cascades_and_suppresses(api):
-    await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"strategies": ["niche"], "inline": True, "max_candidates": 5})
+    await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"preset": "none", "strategies": ["niche"], "inline": True, "max_candidates": 5})
     creators = (await api.get(f"{V1}/creators", headers=api.admin)).json()
     cid = creators[0]["id"]
     analyst = await key_for(api, "analyst")
@@ -134,7 +134,7 @@ async def test_creator_deletion_cascades_and_suppresses(api):
 
 
 async def test_retention_deletes_expired_provider_data(api):
-    await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"strategies": ["niche"], "inline": True, "max_candidates": 5})
+    await api.post(f"{V1}/discovery/runs", headers=api.admin, json={"preset": "none", "strategies": ["niche"], "inline": True, "max_candidates": 5})
     async with api.ctx.pool.acquire() as conn:
         before = await conn.fetchval("SELECT COUNT(*) FROM rpi_creator_profile_snapshots")
         await conn.execute("UPDATE rpi_data_provenance SET expires_at = NOW() - INTERVAL '1 minute'")

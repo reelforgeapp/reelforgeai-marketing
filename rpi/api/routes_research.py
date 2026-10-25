@@ -17,6 +17,7 @@ from rpi.api.serialize import clean, jsonb
 from rpi.audience_intelligence.fit import DEFAULT_ICPS
 from rpi.core.audit import audit
 from rpi.discovery.engine import STRATEGIES, DiscoveryRequest
+from rpi.discovery.presets import DEFAULT_PRESET, PRESETS, apply_preset
 from rpi.providers.base import CreatorSearchCriteria
 from rpi.providers.gateway import CallContext
 from rpi.storage.creators import creator_profile, delete_creator
@@ -25,10 +26,11 @@ router = APIRouter()
 
 
 class DiscoveryBody(BaseModel):
-    criteria: CreatorSearchCriteria = Field(default_factory=lambda: CreatorSearchCriteria(
-        min_subscribers=10_000, max_subscribers=150_000, countries=["US", "CA", "GB", "AU"]))
+    criteria: CreatorSearchCriteria = Field(default_factory=CreatorSearchCriteria)
+    # Fills every criteria field not set explicitly (rpi/discovery/presets.py); "none" disables.
+    preset: Optional[str] = DEFAULT_PRESET
     strategies: list[str] = Field(default_factory=lambda: ["niche"])
-    max_candidates: int = Field(default=200, ge=1, le=5000)
+    max_candidates: int = Field(default=25, ge=1, le=5000)
     audience_query: Optional[str] = None
     competitor_names: list[str] = Field(default_factory=list)
     budget_usd: Optional[Decimal] = Field(default=None, ge=0)
@@ -37,8 +39,20 @@ class DiscoveryBody(BaseModel):
 
 @router.post("/discovery/estimate")
 async def discovery_estimate(body: DiscoveryBody, ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("analyst"))):
-    req = DiscoveryRequest(body.criteria, body.strategies, body.max_candidates, body.audience_query, body.competitor_names)
-    return clean(ctx.discovery.estimate(req))
+    req = DiscoveryRequest(_criteria(body), body.strategies, body.max_candidates, body.audience_query, body.competitor_names)
+    return clean(ctx.discovery.estimate(req) | {"preset": body.preset, "criteria": req.criteria.model_dump(mode="json")})
+
+
+def _criteria(body: DiscoveryBody) -> CreatorSearchCriteria:
+    try:
+        return apply_preset(body.criteria, body.preset)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/discovery/presets")
+async def discovery_presets(_: Principal = Depends(require("viewer"))):
+    return {"default": DEFAULT_PRESET, "presets": PRESETS}
 
 
 @router.post("/discovery/runs")
@@ -47,9 +61,10 @@ async def discovery_run(body: DiscoveryBody, ctx: RPIContext = Depends(get_ctx),
     if bad:
         raise HTTPException(422, f"unknown strategies {bad}; valid: {list(STRATEGIES)}")
     budget = body.budget_usd if body.budget_usd is not None else Decimal(str(ctx.settings.rpi_default_job_budget_usd))
+    criteria = _criteria(body)
     async with ctx.pool.acquire() as conn:
         job_id = await create_job(conn, "discovery", {
-            "criteria": body.criteria.model_dump(mode="json"), "strategies": body.strategies,
+            "criteria": criteria.model_dump(mode="json"), "preset": body.preset, "strategies": body.strategies,
             "max_candidates": body.max_candidates, "audience_query": body.audience_query,
             "competitor_names": body.competitor_names}, p.actor, budget_usd=budget)
     if body.inline:

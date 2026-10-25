@@ -4,12 +4,15 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
 
 ## Weekly research cycle
 
-1. **Estimate**: Discovery → choose strategies → *Estimate cost* (`POST /discovery/estimate`).
-2. **Discover**: *Run discovery* with a job budget. Runs of ≤200 candidates run inline; larger runs are queued
-   (Celery `discovery` queue). Review the run's warnings, duplicates and "why included".
+1. **Estimate**: Discovery → choose strategies → *Estimate cost* (`POST /discovery/estimate`). The estimate shows
+   credits and the final criteria after the preset.
+2. **Discover**: *Run discovery* with the `quality` preset (default) and a job budget. Runs of ≤200 candidates run
+   inline; larger runs are queued (Celery `discovery` queue). Review the run's warnings, duplicates, "why
+   included" and `matching_in_provider` (how many creators pass every filter).
 3. **Screen** (stage 2): select candidates → *Screen selected*, or `POST /research/funnel` with `screen`/`analyze`
-   sizes (defaults: 200 / 50). Rejected-for-niche creators never receive paid enrichment afterwards.
-4. **Deep analysis** (stages 3–4): demographics, provider sponsorship history, selective transcripts, contacts.
+   sizes (defaults: 25 / 10). Rejected-for-niche creators never receive paid enrichment afterwards.
+4. **Deep analysis** (stages 3–4): provider sponsorship history, selective transcripts, and a contact lookup for
+   recommended creators only. Audience demographics only when `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=true`.
 5. **Review**: creator profile → evidence, provenance tags, missing data, policy exclusions, risk screen.
 6. **Compare** shortlisted creators, then model the economics in the **Profitability Lab** with the creator's
    expected views and requested fee (add the fee as a `sponsorship_request` note so scoring can use it).
@@ -19,6 +22,30 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
 9. **Launch**: create the campaign (referral code + UTM), record the influencer fee as a campaign cost with the
    invoice reference, move the creator to `active_partnership`.
 10. **Measure**: Campaigns → partner profitability (switch first/last touch) and cohorts.
+
+## Credit-efficient discovery (CreatorDB)
+
+CreatorDB charges 1 credit per search page of up to 100 creators for up to 10 filters, and 3–15 credits per
+creator for enrichment. RPI therefore filters first and enriches last:
+
+| Step | Credits | Rule |
+|---|---|---|
+| Search (`quality` preset) | 1 per run | 10 filters: educator hashtags, AI / content-creation / video-editing topics, English, main audience US/CA/GB/AU, 10k–150k subscribers, median views ≥ 2,000, engagement ≥ 2%, ≥ 2 uploads in 30 days, has a contact email. Sorted by median views; only `max_candidates` (default 25) are stored |
+| Preliminary screen | 0 | Provider-enforced filters count as met; names mostly in non-Latin script are held back |
+| Screen (recent videos) | 3 per creator | Top 25 by preliminary score, and only when the provider's data may be used for scoring |
+| Deep analysis | 5 per creator | Top 10 screened; sponsorship history |
+| Contact | 15 per creator | Only `recommend`; charged only when an email exists |
+| Audience demographics | 10 per creator | Off by default; search already filters the main audience country |
+
+Paid calls whose data the score may not use are skipped: with `RPI_CREATORDB_SCORING_PERMITTED=false` no
+CreatorDB screening runs at all, because it could not change a recommendation. Cached and recently fetched
+results are never re-bought (freshness windows in `rpi/enrichment/value_gate.py`).
+
+Search relevance limits, from live tests on 2026-10-25: CreatorDB niches are hashtag-derived and noisy, the
+`mainLanguage` label misses many bilingual channels, and hashtags such as `#facelessyoutube` also match channels
+that publish AI content rather than teach it. Screening the recent videos is what separates them. Use
+`quality_broad` (topics + niches, including income niches) for a wider pool, or `preset: "none"` to search
+with only the fields you send.
 
 ## Daily checks (5 minutes)
 

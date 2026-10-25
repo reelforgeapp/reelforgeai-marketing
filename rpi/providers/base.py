@@ -67,6 +67,15 @@ class CreatorSearchCriteria(BaseModel):
     min_avg_views: Optional[int] = None
     active_within_days: Optional[int] = None
     sponsored_brands: list[str] = Field(default_factory=list)
+    # Quality bounds. Recent-video metrics cover long-form videos only.
+    audience_countries: list[str] = Field(default_factory=list)  # main audience country, ISO alpha-2
+    audience_ages: list[str] = Field(default_factory=list)  # main audience age band, e.g. "25-34"
+    min_median_views: Optional[int] = None
+    min_engagement_rate: Optional[float] = None  # (likes + comments) / views, 0..1
+    min_uploads_30d: Optional[int] = None
+    require_email: bool = False  # provider holds a contact email
+    require_sponsorship_history: bool = False
+    sort_by: Optional[str] = None  # median_views | avg_views | engagement | subscribers
     limit: int = 50
     page_token: Optional[str] = None
 
@@ -211,7 +220,10 @@ class ProviderResult(Generic[T]):
     cost: CostActual = field(default_factory=CostActual)
     missing_fields: list[str] = field(default_factory=list)
     unapplied_criteria: list[str] = field(default_factory=list)
+    # Criteria the provider enforced server-side (search only).
+    applied_criteria: list[str] = field(default_factory=list)
     next_page_token: Optional[str] = None
+    total_available: Optional[int] = None  # matches across all pages, when the provider reports it
     error: Optional[str] = None
     error_code: Optional[str] = None
     request_id: Optional[str] = None

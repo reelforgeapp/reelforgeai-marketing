@@ -31,11 +31,15 @@ fields the spec omits (`hasEmail`, `isAgencyRepresented`, `isPodcast`, `joinedDa
 | Not used yet | — | Fractional calls (per-field billing; must be enabled on the key), search enrichment, `/youtube/performance-history`, `/youtube/subtitles/*`, `/youtube/niches` + `/youtube/topics` (1 credit each; the verify script can list niches), `/sponsor/creators` (15 credits; would power competitor-sponsorship discovery) |
 | Terms (storage, AI analysis, derived scoring) | ⚠️ ⛔ | CreatorDB publishes no API terms (the privacy policy refers to Terms of Service that are not online). Your customer agreement decides. Scoring from CreatorDB data is **off** until `RPI_CREATORDB_SCORING_PERMITTED=true` |
 
-Search translation (`build_search_body`): keywords → `hashtags in ["#facelessyoutube", …]`; topics and niches →
-`topics`/`niches` ids; languages → `mainLanguage` (ISO 639-3); countries → `country` (alpha-3); subscriber,
-average-view and activity bounds → `totalSubscribers`, `avgRecentVideosViews`, `lastPublishTime`. Codes not in
-`rpi/providers/iso_codes.py` are reported as unapplied. Results sort by `avgRecentVideosViews` (the API default is
-alphabetical). Brand-sponsorship criteria return UNSUPPORTED rather than unrelated creators.
+Search translation (`build_search_body`): keywords → `hashtags in ["#aitools", …]`; topics and niches →
+`topics`/`niches` ids; languages → `mainLanguage` (ISO 639-3); countries → `country` and audience countries →
+`mainAudienceLocation` (alpha-3); audience ages → `mainAudienceAge`; subscriber, view, engagement and activity
+bounds → `totalSubscribers`, `avgRecentVideosViews`, `medianRecentVideosViews`, `avgRecentVideosEngagementRate`,
+`contentsIn30Days`, `lastPublishTime`; `hasEmail`, `hasSponsors`. Codes not in `rpi/providers/iso_codes.py` are
+reported as unapplied; enforced criteria are returned as `applied_criteria`, and `totalResults` as
+`total_available`. Results sort by `medianRecentVideosViews` (the API default is alphabetical). Brand-sponsorship
+criteria return UNSUPPORTED rather than unrelated creators. Presets and their tuning: `rpi/discovery/presets.py`
+and OPERATIONS_RUNBOOK.md → Credit-efficient discovery.
 
 **Verification:** `python -m scripts.rpi_verify_creatordb --channel UC…` calls `/usage` (free) and one profile
 (2 credits). `--probe --yes` calls every endpoint once (≤ 39 credits). `--niches ai,video --yes` lists niche ids

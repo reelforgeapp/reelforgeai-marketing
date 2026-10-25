@@ -26,10 +26,10 @@ async def test_full_lifecycle(api):
     api.ctx.settings = api.ctx.settings.model_copy(update={"rpi_stripe_webhook_secret": WEBHOOK_SECRET})
 
     # 1. Discovery (fixture provider), with cost estimate first
-    est = await api.post(f"{V1}/discovery/estimate", json={"strategies": ["niche"], "max_candidates": 40}, headers=admin)
+    est = await api.post(f"{V1}/discovery/estimate", json={"preset": "none", "strategies": ["niche"], "max_candidates": 40}, headers=admin)
     assert est.status_code == 200 and est.json()["primary_provider"] == "fixture"
     run = await api.post(f"{V1}/discovery/runs", headers=admin, json={
-        "strategies": ["niche", "competitor_sponsorship", "emerging", "lookalike"], "max_candidates": 40, "inline": True,
+        "preset": "none", "strategies": ["niche", "competitor_sponsorship", "emerging", "lookalike"], "max_candidates": 40, "inline": True,
         "criteria": {"min_subscribers": 1000, "max_subscribers": 1000000}})
     assert run.status_code == 200, run.text
     body = run.json()

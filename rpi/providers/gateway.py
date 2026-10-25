@@ -200,6 +200,8 @@ class ProviderGateway:
                 return ProviderResult(
                     adapter.name, operation.value, ResultStatus.CACHED, _deserialize(operation, hit.get("data")),
                     missing_fields=hit.get("missing_fields", []), next_page_token=hit.get("next_page_token"),
+                    unapplied_criteria=hit.get("unapplied_criteria", []), applied_criteria=hit.get("applied_criteria", []),
+                    total_available=hit.get("total_available"),
                 )
 
         estimate = adapter.estimate_cost(operation, **kwargs)
@@ -240,7 +242,8 @@ class ProviderGateway:
             ttl = timedelta(days=policy.cache_ttl_days or 0)
             await self.cache.put(key, adapter.name, operation.value, {
                 "data": _serialize(result.data), "missing_fields": result.missing_fields,
-                "next_page_token": result.next_page_token,
+                "next_page_token": result.next_page_token, "unapplied_criteria": result.unapplied_criteria,
+                "applied_criteria": result.applied_criteria, "total_available": result.total_available,
             }, ttl)
         return result
 

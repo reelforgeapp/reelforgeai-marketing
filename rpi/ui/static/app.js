@@ -110,24 +110,26 @@ const views = {
     const strategies = ["niche", "competitor_sponsorship", "emerging", "audience_first", "lookalike"];
     const checks = strategies.map(s => h("label", { style: "flex-direction:row;gap:4px;align-items:center" },
       h("input", { type: "checkbox", value: s, checked: s === "niche" }), s));
-    const kw = h("input", { placeholder: "faceless youtube, ai shorts (blank = defaults)", size: 40 });
+    const preset = h("select", {}, ["quality", "quality_broad", "none"].map(p => h("option", { value: p }, p)));
+    const kw = h("input", { placeholder: "blank = preset hashtags and topics; words are matched as hashtags", size: 40 });
     const minS = h("input", { type: "number", value: 10000 }), maxS = h("input", { type: "number", value: 150000 });
     const countries = h("input", { value: "US,CA,GB,AU", size: 14 });
-    const max = h("input", { type: "number", value: 200 }), budget = h("input", { type: "number", step: "0.5", value: 10 });
+    const max = h("input", { type: "number", value: 25 }), budget = h("input", { type: "number", step: "0.5", value: 10 });
     const aq = h("input", { placeholder: "audience description (SparkToro, opt-in)", size: 40 });
     const out = h("div");
     const body = () => ({
       strategies: checks.map(c => c.firstChild).filter(i => i.checked).map(i => i.value),
-      max_candidates: Number(max.value), budget_usd: budget.value, audience_query: aq.value || null,
-      criteria: { keywords: kw.value ? kw.value.split(",").map(s => s.trim()).filter(Boolean) : [],
+      max_candidates: Number(max.value), budget_usd: budget.value, audience_query: aq.value || null, preset: preset.value,
+      criteria: { ...(kw.value ? { keywords: kw.value.split(",").map(s => s.trim()).filter(Boolean) } : {}),
         min_subscribers: Number(minS.value), max_subscribers: Number(maxS.value),
-        countries: countries.value.split(",").map(s => s.trim()).filter(Boolean) },
+        audience_countries: countries.value.split(",").map(s => s.trim()).filter(Boolean) },
     });
     const estimate = async () => {
       const e = await api("POST", "/discovery/estimate", body());
-      out.replaceChildren(panel("Estimated cost", h("p", {}, `Total ${money(e.total_usd)} via ${e.primary_provider || "no search provider configured"}`),
-        table([{ label: "Strategy", key: "strategy" }, { label: "Provider", key: "provider" }, { label: "USD", render: r => money(r.usd), num: true },
-          { label: "Basis", key: "basis" }], e.lines)));
+      out.replaceChildren(panel("Estimated cost", h("p", {}, `Total ${e.total_credits} credits (${money(e.total_usd)}) via ${e.primary_provider || "no search provider configured"}`),
+        table([{ label: "Strategy", key: "strategy" }, { label: "Provider", key: "provider" }, { label: "Credits", key: "credits", num: true },
+          { label: "USD", render: r => money(r.usd), num: true }, { label: "Basis", key: "basis" }], e.lines),
+        h("pre", {}, JSON.stringify(e.criteria, null, 2))));
     };
     const run = async () => {
       const b = body(); b.inline = b.max_candidates <= 200;
@@ -138,9 +140,10 @@ const views = {
     const runs = await api("GET", "/discovery/runs");
     setView("Creator discovery",
       panel("New search", h("div", { class: "row" }, ...checks), h("div", { class: "row" },
-        field("Keywords", kw), field("Min subscribers", minS), field("Max subscribers", maxS), field("Countries", countries),
+        field("Preset", preset), field("Keywords", kw), field("Min subscribers", minS), field("Max subscribers", maxS),
+        field("Main audience countries", countries),
         field("Max candidates", max), field("Job budget (USD)", budget), field("Audience-first query", aq)),
-        h("p", { class: "muted" }, "Size limits are soft preferences. audience_first uses paid SparkToro credits and only runs when selected."),
+        h("p", { class: "muted" }, "The preset sets hashtags and topics, English, audience location, median views, engagement, upload frequency and a contact email as search filters, so only creators passing them are pulled. Fields above override it. audience_first uses paid SparkToro credits and only runs when selected."),
         h("div", { class: "row" }, h("button", { class: "secondary", onclick: () => estimate().catch(e => flash(e.message, true)) }, "Estimate cost"),
           h("button", { onclick: () => run().catch(e => flash(e.message, true)) }, "Run discovery"))),
       out,

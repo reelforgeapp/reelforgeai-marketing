@@ -30,11 +30,11 @@ JOB_TYPES = ("discovery", "funnel", "screen", "deep")
 
 @dataclass
 class StageSizes:
-    discover: int = 1000
-    screen: int = 200
-    analyze: int = 50
-    qualify: int = 25
-    recommend: int = 10
+    discover: int = 100
+    screen: int = 25
+    analyze: int = 10
+    qualify: int = 10
+    recommend: int = 5
 
 
 async def create_job(conn, job_type: str, params: dict, actor: str, *, priority: str = "normal",

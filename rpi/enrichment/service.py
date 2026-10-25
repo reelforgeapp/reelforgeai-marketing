@@ -43,11 +43,19 @@ CONTENT_PREFERENCE = ("creatordb", "fixture")
 TRANSCRIPT_PREFERENCE = ("creatordb", "supadata", "fixture")
 
 
+# Paid results that only matter through the qualification score.
+SCORING_INPUTS = {Capability.CREATOR_CONTENT, Capability.AUDIENCE_DEMOGRAPHICS, Capability.SPONSORSHIP_HISTORY,
+                  Capability.TRANSCRIPT}
+
+
 @dataclass
 class ResearchConfig:
     fast: Optional[ModelPrice]
     deep: Optional[ModelPrice]
     creatordb_scoring_permitted: bool
+    # 10 CreatorDB credits per creator; discovery presets already filter on
+    # the main audience country, so this is off unless an ICP needs detail.
+    fetch_audience_demographics: bool = False
     preferred_min_subs: int = 10_000
     preferred_max_subs: int = 150_000
     preferred_max_fee: float = 1_000.0
@@ -96,9 +104,17 @@ class ResearchService:
         decision = gate(capability, st, force=force)
         if not decision.allowed:
             return None, f"skipped {capability.value}: {decision.reason}"
-        adapter = self.registry.first_supporting(capability, prefer)
-        if adapter is None:
+        adapters = self.registry.supporting(capability, prefer)
+        if not adapters:
             return None, f"skipped {capability.value}: no configured provider supports it"
+        if capability in SCORING_INPUTS:
+            # Never pay for data the qualification score is not allowed to use.
+            usable = [a for a in adapters if self.allowed(a.policy_key)]
+            if not usable:
+                return None, (f"skipped {capability.value}: {adapters[0].name} data may not be used for scoring "
+                              f"(set RPI_CREATORDB_SCORING_PERMITTED after reviewing the provider agreement)")
+            adapters = usable
+        adapter = adapters[0]
         result = await self.gateway.call(adapter, capability, *args, ctx=ctx)
         if not result.ok:
             return None, f"{capability.value} via {adapter.name}: {result.status.value} {result.error or ''}".strip()
@@ -138,9 +154,14 @@ class ResearchService:
                 await transition(conn, creator_id, Status.DEEP_ANALYSIS, actor=actor, reason="stage 3 analysis")
             account = await self._account(conn, creator_id)
 
-            aud, note = await self._paid(conn, creator_id, Capability.AUDIENCE_DEMOGRAPHICS, CONTENT_PREFERENCE, account, ctx=ctx)
-            if note:
-                notes.append(note)
+            aud = None
+            if self.config.fetch_audience_demographics:
+                aud, note = await self._paid(conn, creator_id, Capability.AUDIENCE_DEMOGRAPHICS, CONTENT_PREFERENCE, account,
+                                             ctx=ctx)
+                if note:
+                    notes.append(note)
+            else:
+                notes.append("audience demographics not fetched (RPI_FETCH_AUDIENCE_DEMOGRAPHICS is off)")
             if aud and aud.data:
                 async with conn.transaction():
                     await record_audience(conn, creator_id, aud.data)
@@ -155,7 +176,7 @@ class ResearchService:
             analysis = await self._classify(conn, creator_id, ctx, allow_deep=True, notes=notes)
             qual = await self._qualify(conn, creator_id, analysis, stage=3, notes=notes)
 
-            if include_contacts and qual.get("recommendation") in ("recommend", "investigate"):
+            if include_contacts and qual.get("recommendation") == "recommend":
                 await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 4) WHERE id = $1", creator_id)
                 contacts, note = await self._paid(conn, creator_id, Capability.CREATOR_CONTACTS, CONTENT_PREFERENCE, account, ctx=ctx)
                 if note:

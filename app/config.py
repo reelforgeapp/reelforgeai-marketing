@@ -137,11 +137,15 @@ class Settings(BaseSettings):
     rpi_default_job_budget_usd: float = Field(default=10.0)
 
     # Funnel stage sizes (directive section 9; all configurable)
-    rpi_stage1_discover: int = Field(default=1000)
-    rpi_stage2_screen: int = Field(default=200)
-    rpi_stage3_analyze: int = Field(default=50)
-    rpi_stage4_qualify: int = Field(default=25)
-    rpi_stage5_recommend: int = Field(default=10)
+    # Funnel sizes per job. Screening costs 3 CreatorDB credits per creator;
+    # deep analysis 5 (+15 for a contact when recommended).
+    rpi_stage1_discover: int = Field(default=100)
+    rpi_stage2_screen: int = Field(default=25)
+    rpi_stage3_analyze: int = Field(default=10)
+    rpi_stage4_qualify: int = Field(default=10)
+    rpi_stage5_recommend: int = Field(default=5)
+    # Audience demographics cost 10 CreatorDB credits per creator.
+    rpi_fetch_audience_demographics: bool = Field(default=False)
 
     # Affiliate program terms (see KNOWN_LIMITATIONS: public pages disagree)
     rpi_affiliate_commission_rate: float = Field(default=0.30)

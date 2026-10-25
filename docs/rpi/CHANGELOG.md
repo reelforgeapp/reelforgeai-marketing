@@ -1,5 +1,23 @@
 # RPI changelog
 
+## 0.1.2 — 2026-10-25
+
+### Targeted, credit-efficient discovery
+* Discovery presets (`rpi/discovery/presets.py`). The default `quality` preset puts every rule CreatorDB can enforce
+  into one 10-filter search (1 credit): educator hashtags AND AI / content-creation / video-editing topics, English,
+  main audience US/CA/GB/AU, 10k–150k subscribers, median views ≥ 2,000, engagement ≥ 2%, ≥ 2 uploads in 30 days,
+  contact email on file; sorted by median views. Tuned with live searches (niches proved noisy). `quality_broad`
+  and `none` are available; explicitly sent fields always win.
+* New search criteria: audience countries and ages, median views, engagement rate, uploads in 30 days, contact
+  email, sponsorship history, sort order. Search results report the enforced filters and the matching pool size.
+* The preliminary screen counts provider-enforced filters as met (labeled), keeps the provider's ranking, and
+  holds back names mostly in non-Latin script.
+* Paid enrichment is skipped when its data may not be used for scoring (no CreatorDB screening while
+  `RPI_CREATORDB_SCORING_PERMITTED=false`). Contacts (15 credits) only for `recommend`. Audience demographics
+  (10 credits) off by default (`RPI_FETCH_AUDIENCE_DEMOGRAPHICS`). Funnel defaults lowered to discover 100,
+  screen 25, analyze 10.
+* Dashboard: preset selector, main-audience countries, credit estimates, subscribers on the run page.
+
 ## 0.1.1 — 2026-10-25
 
 ### CreatorDB adapter matched to the official API

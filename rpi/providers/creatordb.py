@@ -140,9 +140,9 @@ CONTENT_FIELDS: dict[str, FieldSpec] = {
 AUDIENCE_DIMENSIONS = {"country": ("audienceLocations", "country"), "age": ("audienceAgeBreakdown", "ageRange"),
                        "gender": ("audienceGender", None)}
 
-# Long-form views per video within the subscriber band; CreatorDB's default
-# sort is alphabetical by display name.
-DEFAULT_SORT = "avgRecentVideosViews"
+# Median long-form views per video (robust to one viral upload); CreatorDB's
+# default sort is alphabetical by display name.
+DEFAULT_SORT = "medianRecentVideosViews"
 FILTERS_PER_CREDIT = 10
 CREDIT_ERROR_MARKERS = ("credit", "quota", "insufficient", "balance", "spend limit")
 
@@ -196,54 +196,75 @@ def topic_label(topic_id: str) -> str:
     return parts[1] if len(parts) >= 3 and parts[0] == "id" else str(topic_id)
 
 
-def build_search_body(criteria: CreatorSearchCriteria, *, now_ms: Optional[int] = None,
-                      sort_by: str = DEFAULT_SORT) -> tuple[dict, list[str]]:
-    """Translate provider-neutral criteria into CreatorDB filters.
-    Returns (body, unapplied_criteria)."""
+AUDIENCE_AGE_BANDS = ("13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+")
+SORT_FIELDS = {"median_views": "medianRecentVideosViews", "avg_views": "avgRecentVideosViews",
+               "engagement": "avgRecentVideosEngagementRate", "subscribers": "totalSubscribers"}
+
+
+def build_search_body(criteria: CreatorSearchCriteria, *, now_ms: Optional[int] = None) -> tuple[dict, list[str], list[str]]:
+    """Translate provider-neutral criteria into CreatorDB filters (all ANDed;
+    values inside one `in` filter are ORed). Returns (body, unapplied, applied)."""
     filters: list[dict[str, Any]] = []
     unapplied: list[str] = []
+    applied: list[str] = []
 
-    def add(name: str, op: str, value: Any) -> None:
+    def add(criterion: str, name: str, op: str, value: Any) -> None:
         filters.append({"filterName": name, "op": op, "value": value})
+        if criterion not in applied:
+            applied.append(criterion)
+
+    def codes(criterion: str, values: list[str], convert) -> list[str]:
+        out = []
+        for v in values:
+            code = convert(v)
+            if code:
+                out.append(code)
+            else:
+                unapplied.append(f"{criterion}:{v}")
+        return sorted(set(out))
 
     tags = sorted({t for t in (hashtag(k) for k in criteria.keywords) if t})
     if tags:
-        add("hashtags", "in", tags)
+        add("keywords", "hashtags", "in", tags)
     if criteria.topics:
-        add("topics", "in", list(criteria.topics))
+        add("topics", "topics", "in", list(criteria.topics))
     if criteria.niches:
-        add("niches", "in", list(criteria.niches))
-    languages = []
-    for lang in criteria.languages:
-        code = language_to_639_3(lang)
-        if code:
-            languages.append(code)
-        else:
-            unapplied.append(f"languages:{lang}")
-    if languages:
-        add("mainLanguage", "in", sorted(set(languages)))
-    countries = []
-    for c in criteria.countries:
-        code = country_to_a3(c)
-        if code:
-            countries.append(code)
-        else:
-            unapplied.append(f"countries:{c}")
-    if countries:
-        add("country", "in", sorted(set(countries)))
+        add("niches", "niches", "in", list(criteria.niches))
+    if languages := codes("languages", criteria.languages, language_to_639_3):
+        add("languages", "mainLanguage", "in", languages)
+    if countries := codes("countries", criteria.countries, country_to_a3):
+        add("countries", "country", "in", countries)
+    if audience := codes("audience_countries", criteria.audience_countries, country_to_a3):
+        add("audience_countries", "mainAudienceLocation", "in", audience)
+    if ages := codes("audience_ages", criteria.audience_ages, lambda a: a if a in AUDIENCE_AGE_BANDS else None):
+        add("audience_ages", "mainAudienceAge", "in", ages)
     # CreatorDB number filters are strict (> and <); criteria bounds are inclusive.
     if criteria.min_subscribers is not None:
-        add("totalSubscribers", ">", criteria.min_subscribers - 1)
+        add("min_subscribers", "totalSubscribers", ">", criteria.min_subscribers - 1)
     if criteria.max_subscribers is not None:
-        add("totalSubscribers", "<", criteria.max_subscribers + 1)
+        add("max_subscribers", "totalSubscribers", "<", criteria.max_subscribers + 1)
     if criteria.min_avg_views is not None:
-        add("avgRecentVideosViews", ">", criteria.min_avg_views - 1)
+        add("min_avg_views", "avgRecentVideosViews", ">", criteria.min_avg_views - 1)
+    if criteria.min_median_views is not None:
+        add("min_median_views", "medianRecentVideosViews", ">", criteria.min_median_views - 1)
+    if criteria.min_engagement_rate is not None:
+        # Rates are rounded to 4 decimals; subtract half a step to keep the bound inclusive.
+        add("min_engagement_rate", "avgRecentVideosEngagementRate", ">", round(criteria.min_engagement_rate - 0.00005, 5))
+    if criteria.min_uploads_30d is not None:
+        add("min_uploads_30d", "contentsIn30Days", ">", criteria.min_uploads_30d - 1)
     if criteria.active_within_days is not None:
         now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
-        add("lastPublishTime", ">", now_ms - criteria.active_within_days * 86_400_000)
+        add("active_within_days", "lastPublishTime", ">", now_ms - criteria.active_within_days * 86_400_000)
+    if criteria.require_email:
+        add("require_email", "hasEmail", "=", True)
+    if criteria.require_sponsorship_history:
+        add("require_sponsorship_history", "hasSponsors", "=", True)
+    if criteria.sort_by and criteria.sort_by not in SORT_FIELDS:
+        unapplied.append(f"sort_by:{criteria.sort_by}")
     body = {"filters": filters, "pageSize": max(1, min(criteria.limit, 100)),
-            "offset": int(criteria.page_token or 0), "sortBy": sort_by, "desc": True}
-    return body, unapplied
+            "offset": int(criteria.page_token or 0),
+            "sortBy": SORT_FIELDS.get(criteria.sort_by or "", DEFAULT_SORT), "desc": True}
+    return body, unapplied, applied
 
 
 def search_credits(filter_count: int) -> int:
@@ -298,8 +319,10 @@ class CreatorDBAdapter(ProviderAdapter):
         spec = ENDPOINTS[key]
         units = Decimal(str(spec.cost_units))
         if operation == Capability.SEARCH_CREATORS:
-            limit = int(params.get("limit", 50))
-            units *= max(1, -(-limit // 100)) * search_credits(int(params.get("filters", FILTERS_PER_CREDIT)))
+            criteria = params.get("criteria")
+            filters = len(build_search_body(criteria)[0]["filters"]) if criteria is not None else FILTERS_PER_CREDIT
+            limit = int(params.get("limit", criteria.limit if criteria is not None else 50))
+            units *= max(1, -(-limit // 100)) * search_credits(filters)
         basis = "documented_credits" if spec.cost_verified else "assumed_1_credit_per_call"
         if operation == Capability.CREATOR_CONTACTS:
             basis = "documented_credits_max (0 when no email is returned)"
@@ -476,7 +499,7 @@ class CreatorDBAdapter(ProviderAdapter):
             return ProviderResult(PROVIDER, op.value, ResultStatus.UNSUPPORTED,
                                   error="brand-sponsorship search needs /sponsor/creators, which this adapter "
                                         "does not call yet")
-        body, unapplied = build_search_body(criteria)
+        body, unapplied, applied = build_search_body(criteria)
         if not body["filters"]:
             return ProviderResult(PROVIDER, op.value, ResultStatus.ERROR, error="CreatorDB search needs at least one filter",
                                   error_code="bad_request")
@@ -503,8 +526,9 @@ class CreatorDBAdapter(ProviderAdapter):
         return ProviderResult(
             PROVIDER, op.value, ResultStatus.PARTIAL if missing_all else ResultStatus.OK, creators,
             self._cost("search", payload, fallback_units=search_credits(len(body["filters"]))),
-            sorted(missing_all), unapplied,
+            sorted(missing_all), unapplied, applied,
             next_page_token=str(next_offset) if next_offset is not None else None,
+            total_available=coerce(data.get("totalResults"), "int"),
             request_id=self._request_id(),
         )
 

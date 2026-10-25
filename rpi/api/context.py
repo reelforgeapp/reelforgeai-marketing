@@ -54,6 +54,7 @@ def build_context(pool, settings, *, registry: Optional[ProviderRegistry] = None
     research = ResearchService(pool, registry, gateway, llm, ResearchConfig(
         fast=fast if llm else None, deep=deep if llm else None,
         creatordb_scoring_permitted=settings.rpi_creatordb_scoring_permitted,
+        fetch_audience_demographics=settings.rpi_fetch_audience_demographics,
     ))
     if send_fn is None and settings.brevo_api_key:
         from outreach.brevo_client import BrevoClient
