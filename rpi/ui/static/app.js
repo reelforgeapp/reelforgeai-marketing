@@ -227,7 +227,7 @@ const views = {
         card("Recommendation", q ? pill(q.recommendation) : "—"),
         card("Score / confidence", q ? `${(q.overall ?? 0).toFixed?.(2) ?? q.overall} / ${Number(q.confidence).toFixed(2)}` : "—")),
       q?.components?.commercial_fit?.flags?.length
-        ? h("div", { class: "notice" }, "Before outreach: " + q.components.commercial_fit.flags.join("; ")) : null,
+        ? h("div", { class: "notice" }, q.components.commercial_fit.flags.map(f => f[0].toUpperCase() + f.slice(1)).join("; ")) : null,
       panel("Identity and channels", table([{ label: "Platform", key: "platform" }, { label: "Account id", key: "platform_account_id" },
         { label: "Handle", key: "handle" }, { label: "Link", render: r => r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, "open") : "—" }], p.accounts),
         p.identity_matches.length ? h("p", { class: "muted" }, `${p.identity_matches.length} identity match record(s); review under Administration.`) : null),
