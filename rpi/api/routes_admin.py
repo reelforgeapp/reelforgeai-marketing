@@ -20,7 +20,7 @@ from rpi.compliance import retention
 from rpi.compliance.policies import POLICIES
 from rpi.core.audit import audit
 from rpi.crm import suppression
-from rpi.outreach.sender import verify_unsubscribe_token
+from rpi.outreach.sender import TEST_LINK_ID, verify_unsubscribe_token
 from rpi.providers import youtube_analytics
 
 router = APIRouter()
@@ -233,8 +233,17 @@ async def oauth_callback(code: str, state: str, ctx: RPIContext = Depends(get_ct
                         "or by replying to our email.</p>")
 
 
+@public.post("/unsubscribe/{draft_id}", include_in_schema=False)
+async def unsubscribe_one_click(draft_id: str, t: str = "", ctx: RPIContext = Depends(get_ctx)):
+    """RFC 8058 one-click unsubscribe (List-Unsubscribe-Post), sent by mail clients."""
+    response = await unsubscribe(draft_id, t, ctx)
+    return {"unsubscribed": response.status_code == 200}
+
+
 @public.get("/unsubscribe/{draft_id}", response_class=HTMLResponse, include_in_schema=False)
-async def unsubscribe(draft_id: str, t: str, ctx: RPIContext = Depends(get_ctx)):
+async def unsubscribe(draft_id: str, t: str = "", ctx: RPIContext = Depends(get_ctx)):
+    if draft_id == TEST_LINK_ID:
+        return HTMLResponse("<p>This was a test email. Nothing was changed.</p>")
     if not verify_unsubscribe_token(draft_id, t):
         return HTMLResponse("<p>This link is not valid.</p>", status_code=400)
     async with ctx.pool.acquire() as conn:

@@ -362,9 +362,11 @@ const views = {
 
   async outreach() {
     const [drafts, settings] = await Promise.all([api("GET", "/outreach/drafts"), api("GET", "/outreach/settings")]);
+    const testTo = await api("GET", "/outreach/test-recipients").then(r => r.recipients).catch(() => []);
     const detail = h("div");
     const show = d => {
       const subject = h("input", { value: d.subject, size: 80 }), body = h("textarea", {}); body.value = d.body_text;
+      const to = h("select", {}, ...testTo.map(a => h("option", { value: a }, a)));
       detail.replaceChildren(panel(`Draft for ${d.display_name} (${d.status})`,
         d.validation?.ok ? null : h("div", { class: "notice" }, "Validation: " + (d.validation?.errors || []).join("; ")),
         d.grounding?.prior_contact ? h("div", { class: "notice" }, d.grounding.prior_contact.summary) : null,
@@ -375,7 +377,12 @@ const views = {
             .then(v => { flash(v.ok ? "Saved, valid" : "Saved, still invalid: " + v.errors.join("; "), !v.ok); views.outreach(); }).catch(e => flash(e.message, true)) }, "Save edits"),
           h("button", { disabled: d.status !== "draft", onclick: () => api("POST", `/outreach/drafts/${d.id}/approve`).then(() => { flash("Approved"); views.outreach(); }).catch(e => flash(e.message, true)) }, "Approve"),
           h("button", { class: "danger", disabled: !["draft", "approved"].includes(d.status), onclick: () => api("POST", `/outreach/drafts/${d.id}/reject?reason=operator`).then(() => views.outreach()).catch(e => flash(e.message, true)) }, "Reject"),
-          h("button", { disabled: d.status !== "approved" || !settings.sending_enabled, onclick: () => api("POST", `/outreach/drafts/${d.id}/send`).then(() => { flash("Sent"); views.outreach(); }).catch(e => flash(e.message, true)) }, "Send"))));
+          h("button", { disabled: d.status !== "approved" || !settings.sending_enabled, onclick: () => api("POST", `/outreach/drafts/${d.id}/send`).then(() => { flash("Sent"); views.outreach(); }).catch(e => flash(e.message, true)) }, "Send")),
+        h("div", { class: "row" },
+          testTo.length ? field("Test send to", to) : h("p", { class: "muted" }, "Set RPI_TEST_RECIPIENTS to enable test sends."),
+          h("button", { class: "secondary", disabled: !testTo.length, onclick: () => api("POST", `/outreach/drafts/${d.id}/test-send`, { to: to.value })
+            .then(r => flash(`Test sent to ${r.to}. Check that inbox; the creator was not emailed.`)).catch(e => flash(e.message, true)) },
+            "Send test to me"))));
     };
     setView("Outreach",
       h("div", { class: settings.sending_enabled ? "panel" : "notice" }, settings.sending_enabled

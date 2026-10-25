@@ -283,3 +283,65 @@ def test_template_follow_up_acknowledges_earlier_contact_without_claiming_no_rep
     assert "reaching out" not in body and "hear back" not in body
     assert validate_draft(subject, body, build_grounding(c, None)).ok
     assert "We emailed you" not in template_draft(ctx())[1]
+
+
+# --------------------------------------------------------------------------
+# Sender identity, one-click unsubscribe, test sends
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.db
+async def test_send_uses_rpi_sender_and_one_click_unsubscribe(pool):
+    await enable_sending(pool)
+    did, _ = await seed_draft(pool)
+    sender = FakeSender()
+    assert (await send_draft(pool, did, "approver:a", sender, public_base_url="https://rpi.test"))["sent"]
+    msg = sender.sent[0]
+    assert msg["sender_email"] == "jr@reelforgeai.io" and msg["sender_name"] == "Jr" and msg["reply_to"] == "jr@reelforgeai.io"
+    link = msg["headers"]["List-Unsubscribe"].strip("<>")
+    assert link.startswith(f"https://rpi.test/rpi/public/unsubscribe/{did}?t=") and link in msg["text_content"]
+    assert msg["headers"]["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+
+
+@pytest.mark.db
+async def test_test_send_only_reaches_allowed_inbox_and_changes_nothing(pool):
+    from rpi.outreach.sender import test_send
+
+    await enable_sending(pool)
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE rpi_outreach_settings SET sending_enabled = FALSE")
+    did, cid = await seed_draft(pool, status="draft", approved_by=None, pipeline="recommended")
+    sender = FakeSender()
+    allowed = {"marketing@reelforgeai.io"}
+    refused = await test_send(pool, did, "sam@example.com", "approver:a", sender, public_base_url="https://rpi.test",
+                              allowed_recipients=allowed)
+    assert not refused["sent"] and sender.sent == []  # never the creator, never an unlisted address
+    assert not (await test_send(pool, did, "marketing@reelforgeai.io", "approver:a", sender,
+                                public_base_url="https://rpi.test", allowed_recipients=set()))["sent"]
+    ok = await test_send(pool, did, "Marketing@ReelForgeAI.io", "approver:a", sender, public_base_url="https://rpi.test",
+                         allowed_recipients=allowed)
+    assert ok["sent"], ok  # works while sending is disabled and before approval
+    msg = sender.sent[0]
+    assert msg["to_email"] == "marketing@reelforgeai.io" and msg["subject"].startswith("[TEST] ")
+    assert "rpi_test" in msg["tags"] and not any(t.startswith("rpi_draft:") for t in msg["tags"])
+    assert "/rpi/public/unsubscribe/TEST-PREVIEW" in msg["text_content"] and f"unsubscribe/{did}" not in msg["text_content"]
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SELECT status FROM rpi_outreach_drafts WHERE id = $1", did) == "draft"
+        assert await conn.fetchval("SELECT provider_message_id FROM rpi_outreach_drafts WHERE id = $1", did) is None
+        assert await conn.fetchval("SELECT pipeline_status FROM rpi_creators WHERE id = $1", cid) == "recommended"
+        assert await conn.fetchval("SELECT COUNT(*) FROM rpi_outreach_events WHERE draft_id = $1", did) == 0
+
+
+@pytest.mark.db
+async def test_one_click_unsubscribe_and_inactive_test_link(api, pool):
+    from rpi.outreach.sender import unsubscribe_token
+
+    did, cid = await seed_draft(pool)
+    test_page = await api.get("/rpi/public/unsubscribe/TEST-PREVIEW")
+    assert test_page.status_code == 200 and "test email" in test_page.text
+    bad = await api.post(f"/rpi/public/unsubscribe/{did}?t=wrong")
+    assert bad.json() == {"unsubscribed": False}
+    ok = await api.post(f"/rpi/public/unsubscribe/{did}?t={unsubscribe_token(did)}", data={"List-Unsubscribe": "One-Click"})
+    assert ok.json() == {"unsubscribed": True}
+    async with pool.acquire() as conn:
+        assert await suppression.is_suppressed(conn, creator_id=cid)

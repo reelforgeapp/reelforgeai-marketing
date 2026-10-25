@@ -1,5 +1,16 @@
 # RPI changelog
 
+## 0.1.7 — 2026-10-25
+
+* **Test sends:** *Send test to me* (`POST /outreach/drafts/{id}/test-send`) delivers a draft exactly as the creator
+  would get it, subject prefixed `[TEST]`, but only to addresses in `RPI_TEST_RECIPIENTS`. It works before approval
+  and while sending is off. Its unsubscribe link is inactive, and it never changes the draft, the CRM record or
+  contact history.
+* RPI emails now go out under the sender name and email in Outreach settings (reply-to the same address) instead of
+  Partner Scout's Brevo sender, so the From line and the footer always agree.
+* RFC 8058 one-click unsubscribe: `List-Unsubscribe` and `List-Unsubscribe-Post` headers, plus a POST handler on
+  the unsubscribe link.
+
 ## 0.1.6 — 2026-10-25
 
 * RPI accounts for Partner Scout's email history (`rpi/crm/contact_history.py`), matched by linked prospect,
