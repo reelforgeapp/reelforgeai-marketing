@@ -27,8 +27,10 @@ never changes the draft, the CRM record or contact history.
 from __future__ import annotations
 
 import hashlib
+import html
 import hmac
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
@@ -82,13 +84,111 @@ def compliance_footer(settings_row: dict, draft_id: str, public_base_url: str, *
     )
 
 
-def message_fields(settings_row: dict, body: str, link: str) -> dict:
-    """Sender identity, HTML/text bodies and one-click unsubscribe headers (RFC 8058)."""
+FONT_STACK = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+
+
+def _linkify(escaped: str) -> str:
+    """Turn URLs in already-escaped text into short, readable links."""
+    def link(m: re.Match) -> str:
+        url = m.group(0).rstrip(".,")
+        tail = m.group(0)[len(url):]
+        label = re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+        return f'<a href="{url}" style="color:#2563eb;text-decoration:underline">{label}</a>{tail}'
+    return re.sub(r"https?://[^\s<>\"]+", link, escaped)
+
+
+BRAND_TEAL = "#5EEAD4"  # RF monogram border (reelforge-ai frontend/public/icon.svg)
+LINK_TEAL = "#0F766E"  # readable teal for links on white
+
+
+def _signature_parts(settings_row: dict) -> dict:
+    s = get_settings()
+    company = "ReelForge AI"
+    title = (s.rpi_signature_title or "").strip()
+    website = (s.rpi_signature_website or "").strip()
+    return {"name": settings_row["sender_name"], "role": f"{title}, {company}" if title else company,
+            "website": website, "website_label": re.sub(r"^https?://(www\.)?", "", website).rstrip("/"),
+            "email": settings_row["sender_email"], "logo": (s.rpi_signature_logo_url or "").strip()}
+
+
+def signature_text(settings_row: dict) -> str:
+    sig = _signature_parts(settings_row)
+    contact = " · ".join(x for x in (sig["website_label"], sig["email"]) if x)
+    return "\n".join(x for x in (sig["name"], sig["role"], contact) if x)
+
+
+def signature_html(settings_row: dict) -> str:
+    """Logo, name, role and contact line; a table so every email client lays it
+    out the same. The logo has alt text and the rest is text, so it still reads
+    when images are blocked."""
+    sig = {k: html.escape(v) for k, v in _signature_parts(settings_row).items()}
+    link = f'color:{LINK_TEAL};text-decoration:none'
+    logo = (f'<td style="padding:0 14px 0 0;vertical-align:middle">'
+            f'<a href="{sig["website"] or "#"}"><img src="{sig["logo"]}" width="48" height="48" alt="ReelForge AI" '
+            f'style="display:block;border:0;outline:none;border-radius:10px"></a></td>') if sig["logo"] else ""
+    contact = " <span style=\"color:#9ca3af\">&middot;</span> ".join(
+        x for x in ((f'<a href="{sig["website"]}" style="{link}">{sig["website_label"]}</a>' if sig["website"] else ""),
+                    (f'<a href="mailto:{sig["email"]}" style="{link}">{sig["email"]}</a>' if sig["email"] else "")) if x)
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:4px 0 0">'
+        f'<tr>{logo}<td style="padding:2px 0 2px 14px;border-left:2px solid {BRAND_TEAL};vertical-align:middle;'
+        f'font-family:{FONT_STACK};font-size:14px;line-height:1.45;color:#1f2328">'
+        f'<div style="font-weight:600;font-size:15px">{sig["name"]}</div>'
+        f'<div style="color:#4b5563">{sig["role"]}</div><div>{contact}</div></td></tr></table>'
+    )
+
+
+def _without_signed_name(body: str, sender_name: str) -> list[str]:
+    """Body paragraphs with a trailing sign-off name removed (the signature
+    block replaces it); a closing such as "Best," above the name is kept."""
+    paragraphs = [p.strip() for p in body.replace("\r\n", "\n").split("\n\n") if p.strip()]
+    if paragraphs and sender_name:
+        lines = paragraphs[-1].split("\n")
+        if lines[-1].strip() == sender_name.strip():
+            closing = "\n".join(lines[:-1]).strip()
+            return paragraphs[:-1] + ([closing] if closing else [])
+    return paragraphs
+
+
+def with_text_signature(body: str, settings_row: dict) -> str:
+    paragraphs = _without_signed_name(body, settings_row["sender_name"])
+    return "\n\n".join(paragraphs + [signature_text(settings_row)])
+
+
+def render_html(body: str, settings_row: dict, link: str, *, test: bool = False) -> str:
+    """Email-safe HTML with the same paragraphs as the plain-text body: one
+    column, system font, the signature block, footer in small grey type. All
+    text is escaped; video titles in drafts come from creators."""
+    paragraphs = _without_signed_name(body, settings_row["sender_name"])
+    content = "".join(f'<p style="margin:0 0 16px">{_linkify(html.escape(p)).replace(chr(10), "<br>")}</p>'
+                      for p in paragraphs) + signature_html(settings_row)
+    note = ("<br>(Test send: this link is inactive. The creator&#39;s email carries a working one.)" if test else "")
+    footer = (
+        '<hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px">'
+        '<p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280">'
+        f"{html.escape(settings_row['sender_name'])} &middot; ReelForge AI<br>{html.escape(settings_row['postal_address'])}<br>"
+        f'Not interested? Reply &quot;unsubscribe&quot; or <a href="{html.escape(link)}" style="color:#6b7280;'
+        f'text-decoration:underline">opt out here</a> and we won&#39;t contact you again.{note}</p>'
+    )
+    return (
+        '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+        '</head><body style="margin:0;padding:0;background:#ffffff">'
+        f'<div style="max-width:600px;margin:0 auto;padding:24px 16px;font-family:{FONT_STACK};font-size:15px;'
+        f'line-height:1.6;color:#1f2328">{content}{footer}</div></body></html>'
+    )
+
+
+def message_fields(settings_row: dict, body: str, draft_id: str, public_base_url: str, *, test: bool = False) -> dict:
+    """Sender identity, HTML/text bodies with the compliance footer, and
+    one-click unsubscribe headers (RFC 8058)."""
+    link = (f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{TEST_LINK_ID}" if test
+            else unsubscribe_link(draft_id, public_base_url))
     return {
         "sender_name": settings_row["sender_name"], "sender_email": settings_row["sender_email"],
         "reply_to": settings_row["sender_email"],
-        "html_content": "<p>" + body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>",
-        "text_content": body,
+        "html_content": render_html(body, settings_row, link, test=test),
+        "text_content": with_text_signature(body, settings_row)
+                        + compliance_footer(settings_row, draft_id, public_base_url, test=test),
         "headers": {"List-Unsubscribe": f"<{link}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"},
     }
 
@@ -173,11 +273,10 @@ async def send_draft(pool, draft_id: str, actor: str, send_fn: SendFn, *, public
             if not claimed:
                 return {"sent": False, "reasons": ["draft is already being sent or was sent"]}
 
-    body = draft["body_text"] + compliance_footer(settings_row, str(draft_id), public_base_url)
     try:
         result = await send_fn(
             to_email=contact["value"], to_name="", subject=draft["subject"], tags=["rpi", f"rpi_draft:{draft_id}"],
-            **message_fields(settings_row, body, unsubscribe_link(str(draft_id), public_base_url)),
+            **message_fields(settings_row, draft["body_text"], str(draft_id), public_base_url),
         )
     except Exception as exc:  # network failure after claim
         result = {"success": False, "error": str(exc)}
@@ -233,11 +332,9 @@ async def test_send(pool, draft_id: str, to_email: str, actor: str, send_fn: Sen
         if reasons:
             await audit(conn, actor, "outreach.test_send_refused", "outreach_draft", draft_id, {"reasons": reasons})
             return {"sent": False, "reasons": reasons}
-    body = draft["body_text"] + compliance_footer(settings_row, str(draft_id), public_base_url, test=True)
-    test_link = f"{public_base_url.rstrip('/')}/rpi/public/unsubscribe/{TEST_LINK_ID}"
     try:
         result = await send_fn(to_email=to, to_name="", subject="[TEST] " + draft["subject"], tags=["rpi", "rpi_test"],
-                               **message_fields(settings_row, body, test_link))
+                               **message_fields(settings_row, draft["body_text"], str(draft_id), public_base_url, test=True))
     except Exception as exc:
         result = {"success": False, "error": str(exc)}
     async with pool.acquire() as conn:

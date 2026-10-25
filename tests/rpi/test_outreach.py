@@ -345,3 +345,52 @@ async def test_one_click_unsubscribe_and_inactive_test_link(api, pool):
     assert ok.json() == {"unsubscribed": True}
     async with pool.acquire() as conn:
         assert await suppression.is_suppressed(conn, creator_id=cid)
+
+
+def test_template_uses_one_idea_per_paragraph():
+    c = DraftContext(**{**ctx().__dict__, "competitor_deals": ("InVideo",), "request_audience_data": True})
+    subject, body = template_draft(c)
+    paragraphs = body.split("\n\n")
+    assert paragraphs[0].startswith("Hi ") and paragraphs[-1] == c.sender_name
+    assert all("\n" not in p for p in paragraphs)  # no stacked single lines
+    offer = next(p for p in paragraphs if "affiliate program" in p)
+    assert "exclusivity with InVideo" in offer
+    assert any(p.startswith("Program details: https://") for p in paragraphs)
+    assert validate_draft(subject, body, build_grounding(c, None)).ok
+
+
+def test_html_is_escaped_linked_and_keeps_paragraphs():
+    from rpi.outreach.sender import message_fields
+
+    settings_row = {"sender_name": "Larry <B>", "sender_email": "m@reelforgeai.io", "postal_address": "1 Main & Co"}
+    body = 'Hi Sam,\n\nYour video "<script>alert(1)</script> & Co" is great.\n\nProgram details: https://www.reelforgeai.io/become-affiliate\n\nLarry'
+    msg = message_fields(settings_row, body, "d1", "https://rpi.test")
+    h = msg["html_content"]
+    assert "<script>" not in h and "&lt;script&gt;" in h and "&amp; Co" in h
+    assert h.count('<p style="margin:0 0 16px">') == 4
+    assert '<a href="https://www.reelforgeai.io/become-affiliate"' in h and ">reelforgeai.io/become-affiliate</a>" in h
+    assert "Larry &lt;B&gt; &middot; ReelForge AI" in h and "1 Main &amp; Co" in h
+    assert 'href="https://rpi.test/rpi/public/unsubscribe/d1?t=' in h and "opt out here" in h
+    assert msg["text_content"].startswith(body) and "https://rpi.test/rpi/public/unsubscribe/d1?t=" in msg["text_content"]
+    test_h = message_fields(settings_row, body, "d1", "https://rpi.test", test=True)["html_content"]
+    assert "unsubscribe/TEST-PREVIEW" in test_h and "Test send" in test_h and "unsubscribe/d1" not in test_h
+
+
+def test_signature_replaces_the_signed_name_in_html_and_text(monkeypatch):
+    from app.config import get_settings
+    from rpi.outreach.sender import message_fields
+
+    monkeypatch.setattr(get_settings(), "rpi_signature_title", "Founder & CEO")
+    row = {"sender_name": "Larry Barksdale", "sender_email": "marketing@reelforgeai.io", "postal_address": "1 Main St"}
+    msg = message_fields(row, "Hi Sam,\n\nShort note.\n\nLarry Barksdale", "d1", "https://rpi.test")
+    h, t = msg["html_content"], msg["text_content"]
+    assert h.count("Larry Barksdale") == 2  # signature block + footer, not the old plain sign-off
+    assert "Founder &amp; CEO, ReelForge AI" in h and 'alt="ReelForge AI"' in h
+    assert 'src="https://www.reelforgeai.io/logos/reelforge-icon-192.png"' in h
+    assert 'href="mailto:marketing@reelforgeai.io"' in h and ">reelforgeai.io</a>" in h
+    assert "Short note.\n\nLarry Barksdale\nFounder & CEO, ReelForge AI\nreelforgeai.io · marketing@reelforgeai.io" in t
+    closing = message_fields(row, "Hi Sam,\n\nShort note.\n\nBest,\nLarry Barksdale", "d1", "https://rpi.test")
+    assert "<p style=\"margin:0 0 16px\">Best,</p>" in closing["html_content"]
+    assert "Best,\n\nLarry Barksdale\nFounder & CEO" in closing["text_content"]
+    unsigned = message_fields(row, "Hi Sam,\n\nShort note.", "d1", "https://rpi.test")["text_content"]
+    assert "Short note.\n\nLarry Barksdale\nFounder & CEO" in unsigned  # signature added when the draft has none

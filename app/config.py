@@ -159,6 +159,11 @@ class Settings(BaseSettings):
     # Attribution & billing
     # Comma-separated internal addresses allowed to receive RPI test sends.
     rpi_test_recipients: str = Field(default="")
+    # Email signature for RPI outreach (name and address come from Outreach settings).
+    rpi_signature_title: str = Field(default="")  # e.g. "Founder & CEO"
+    rpi_signature_website: str = Field(default="https://reelforgeai.io")
+    # Current brand mark (RF monogram), served from the sender's own domain.
+    rpi_signature_logo_url: str = Field(default="https://www.reelforgeai.io/logos/reelforge-icon-192.png")
     rpi_public_base_url: str = Field(default="")  # used in unsubscribe links, e.g. https://reelforge-marketing.onrender.com
     rpi_stripe_webhook_secret: str = Field(default="")
     rpi_stripe_price_plan_map: str = Field(default="{}")  # JSON {"price_...": "creator"}

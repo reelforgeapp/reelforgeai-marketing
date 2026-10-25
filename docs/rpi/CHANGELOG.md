@@ -1,5 +1,14 @@
 # RPI changelog
 
+## 0.1.8 — 2026-10-25
+
+* Outreach email format: the template puts one idea per paragraph (same wording), and the HTML version is a single
+  readable column (system font, 600px, no images) with a linked "Program details" and a small grey footer with an
+  "opt out here" link. All HTML text is now escaped; video titles in drafts come from creators.
+* Email signature: the RF monogram (served from reelforgeai.io), the sender's name, `RPI_SIGNATURE_TITLE` with
+  "ReelForge AI", and the website and reply address; a plain-text version for the text part. It replaces the
+  plain sign-off name and keeps a closing such as "Best,".
+
 ## 0.1.7 — 2026-10-25
 
 * **Test sends:** *Send test to me* (`POST /outreach/drafts/{id}/test-send`) delivers a draft exactly as the creator
