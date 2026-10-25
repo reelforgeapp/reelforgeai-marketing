@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     # Attribution & billing
     # Comma-separated internal addresses allowed to receive RPI test sends.
     rpi_test_recipients: str = Field(default="")
+    # Scheduled sends go out only inside this window, in RPI_SEND_TIMEZONE.
+    rpi_send_timezone: str = Field(default="America/New_York")
+    rpi_send_window: str = Field(default="09:00-17:00")
+    rpi_send_weekdays_only: bool = Field(default=True)
     # Email signature for RPI outreach (name and address come from Outreach settings).
     rpi_signature_title: str = Field(default="")  # e.g. "Founder & CEO"
     rpi_signature_website: str = Field(default="https://reelforgeai.io")

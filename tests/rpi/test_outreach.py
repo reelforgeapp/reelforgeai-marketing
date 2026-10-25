@@ -394,3 +394,93 @@ def test_signature_replaces_the_signed_name_in_html_and_text(monkeypatch):
     assert "Best,\n\nLarry Barksdale\nFounder & CEO" in closing["text_content"]
     unsigned = message_fields(row, "Hi Sam,\n\nShort note.", "d1", "https://rpi.test")["text_content"]
     assert "Short note.\n\nLarry Barksdale\nFounder & CEO" in unsigned  # signature added when the draft has none
+
+
+# --------------------------------------------------------------------------
+# Scheduled sends
+# --------------------------------------------------------------------------
+
+
+def test_send_window_boundaries():
+    from datetime import datetime, timezone
+
+    from rpi.outreach.sender import in_send_window
+
+    def at(iso):
+        return in_send_window(datetime.fromisoformat(iso).astimezone(timezone.utc), tz="America/New_York",
+                              window="09:00-17:00", weekdays_only=True)
+    assert at("2026-10-26T11:00:00-04:00")       # Monday 11:00 ET
+    assert not at("2026-10-26T08:59:00-04:00")   # before the window
+    assert not at("2026-10-26T17:01:00-04:00")   # after it
+    assert not at("2026-10-31T11:00:00-04:00")   # Saturday
+    assert at("2026-11-02T11:00:00-05:00")       # after the DST change, still 11:00 local
+
+
+async def schedule(pool, did, when):
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE rpi_outreach_drafts SET scheduled_send_at = $2 WHERE id = $1", did, when)
+
+
+@pytest.mark.db
+async def test_scheduled_sends_respect_window_due_time_and_daily_limit(pool):
+    from datetime import datetime, timedelta, timezone
+
+    from rpi.outreach.sender import send_due_drafts
+
+    await enable_sending(pool, limit=1)
+    now = datetime.now(timezone.utc)
+    first, _ = await seed_draft(pool, email="first@example.com")
+    second, _ = await seed_draft(pool, email="second@example.com")
+    later, _ = await seed_draft(pool, email="later@example.com")
+    await schedule(pool, first, now - timedelta(minutes=10))
+    await schedule(pool, second, now - timedelta(minutes=5))
+    await schedule(pool, later, now + timedelta(days=1))
+    sender = FakeSender()
+    assert (await send_due_drafts(pool, sender, public_base_url="https://rpi.test", window_open=False))["status"] == "outside_window"
+    assert sender.sent == []
+    result = await send_due_drafts(pool, sender, public_base_url="https://rpi.test", window_open=True)
+    assert result["sent"] == [first] and [m["to_email"] for m in sender.sent] == ["first@example.com"]
+    again = await send_due_drafts(pool, sender, public_base_url="https://rpi.test", window_open=True)
+    assert again == {"status": "daily_limit_reached"} and len(sender.sent) == 1  # second waits for tomorrow
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SELECT scheduled_send_at IS NOT NULL FROM rpi_outreach_drafts WHERE id = $1", second)
+        assert await conn.fetchval("SELECT status FROM rpi_outreach_drafts WHERE id = $1", later) == "approved"
+        refusals = await conn.fetchval("SELECT COUNT(*) FROM rpi_audit_log WHERE action = 'outreach.send_refused'")
+    assert refusals == 0  # a full daily limit is not logged every five minutes
+
+
+@pytest.mark.db
+async def test_scheduled_send_is_cancelled_when_refused_for_good(pool):
+    from datetime import datetime, timedelta, timezone
+
+    from rpi.outreach.sender import send_due_drafts
+
+    await enable_sending(pool)
+    did, cid = await seed_draft(pool, email="optout@example.com")
+    await schedule(pool, did, datetime.now(timezone.utc) - timedelta(minutes=1))
+    async with pool.acquire() as conn:
+        await suppression.suppress_creator(conn, cid, "unsubscribe link", "recipient")
+    sender = FakeSender()
+    result = await send_due_drafts(pool, sender, public_base_url="https://rpi.test", window_open=True)
+    assert result["cancelled"] == [did] and sender.sent == []
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT status, scheduled_send_at, failure_reason FROM rpi_outreach_drafts WHERE id = $1", did)
+    assert row["status"] == "approved" and row["scheduled_send_at"] is None and "scheduled send refused" in row["failure_reason"]
+
+
+@pytest.mark.db
+async def test_schedule_endpoint_requires_approval_and_timezone(api, pool):
+    did, _ = await seed_draft(pool, status="draft", approved_by=None, pipeline="recommended")
+    url = f"/rpi/api/v1/outreach/drafts/{did}/schedule"
+    assert (await api.post(url, json={"send_at": "2026-10-27T11:00:00-04:00"}, headers=api.admin)).status_code == 409
+    approved, _ = await seed_draft(pool, email="ok@example.com")
+    url = f"/rpi/api/v1/outreach/drafts/{approved}/schedule"
+    assert (await api.post(url, json={"send_at": "2026-10-27T11:00:00"}, headers=api.admin)).status_code == 422
+    ok = await api.post(url, json={"send_at": "2026-10-27T11:00:00-04:00"}, headers=api.admin)
+    assert ok.status_code == 200
+    async with pool.acquire() as conn:
+        assert (await conn.fetchval("SELECT scheduled_send_at FROM rpi_outreach_drafts WHERE id = $1", approved)).isoformat() \
+            == "2026-10-27T15:00:00+00:00"
+    assert (await api.post(url, json={"send_at": None}, headers=api.admin)).status_code == 200
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SELECT scheduled_send_at FROM rpi_outreach_drafts WHERE id = $1", approved) is None

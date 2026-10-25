@@ -1,5 +1,13 @@
 # RPI changelog
 
+## 0.1.9 — 2026-10-25
+
+* **Scheduled sends** (migration `006_rpi_scheduled_sends`): approved drafts get a *send at* time (dashboard
+  *Schedule*, `POST /outreach/drafts/{id}/schedule`). The worker job `rpi_send_scheduled` runs every 5 minutes and
+  sends due drafts inside the send window (`RPI_SEND_TIMEZONE`, `RPI_SEND_WINDOW`, `RPI_SEND_WEEKDAYS_ONLY`) through
+  `send_draft`, so every gate still applies. A full daily limit or disabled sending keeps the schedule without audit
+  noise; any other refusal cancels it and records the reason. `scripts/rpi_migrate.py` now applies 005 and 006.
+
 ## 0.1.8 — 2026-10-25
 
 * Outreach email format: the template puts one idea per paragraph (same wording), and the HTML version is a single

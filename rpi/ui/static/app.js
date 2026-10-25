@@ -367,6 +367,10 @@ const views = {
     const show = d => {
       const subject = h("input", { value: d.subject, size: 80 }), body = h("textarea", {}); body.value = d.body_text;
       const to = h("select", {}, ...testTo.map(a => h("option", { value: a }, a)));
+      const when = h("input", { type: "datetime-local" });
+      const scheduleTo = v => api("POST", `/outreach/drafts/${d.id}/schedule`, { send_at: v })
+        .then(() => { flash(v ? `Scheduled for ${new Date(v).toLocaleString()}` : "Schedule cleared"); views.outreach(); })
+        .catch(e => flash(e.message, true));
       detail.replaceChildren(panel(`Draft for ${d.display_name} (${d.status})`,
         d.validation?.ok ? null : h("div", { class: "notice" }, "Validation: " + (d.validation?.errors || []).join("; ")),
         d.grounding?.prior_contact ? h("div", { class: "notice" }, d.grounding.prior_contact.summary) : null,
@@ -378,6 +382,13 @@ const views = {
           h("button", { disabled: d.status !== "draft", onclick: () => api("POST", `/outreach/drafts/${d.id}/approve`).then(() => { flash("Approved"); views.outreach(); }).catch(e => flash(e.message, true)) }, "Approve"),
           h("button", { class: "danger", disabled: !["draft", "approved"].includes(d.status), onclick: () => api("POST", `/outreach/drafts/${d.id}/reject?reason=operator`).then(() => views.outreach()).catch(e => flash(e.message, true)) }, "Reject"),
           h("button", { disabled: d.status !== "approved" || !settings.sending_enabled, onclick: () => api("POST", `/outreach/drafts/${d.id}/send`).then(() => { flash("Sent"); views.outreach(); }).catch(e => flash(e.message, true)) }, "Send")),
+        d.status === "approved" ? h("div", { class: "row" },
+          d.scheduled_send_at ? h("p", {}, `Scheduled for ${new Date(d.scheduled_send_at).toLocaleString()} (sent by RPI within the send window).`)
+            : h("p", { class: "muted" }, "Not scheduled. Send now, or pick a time:"),
+          field("Send at (your time)", when),
+          h("button", { class: "secondary", onclick: () => when.value ? scheduleTo(new Date(when.value).toISOString()) : flash("Pick a date and time", true) }, "Schedule"),
+          d.scheduled_send_at ? h("button", { class: "secondary", onclick: () => scheduleTo(null) }, "Clear schedule") : null) : null,
+        d.failure_reason ? h("div", { class: "notice" }, d.failure_reason) : null,
         h("div", { class: "row" },
           testTo.length ? field("Test send to", to) : h("p", { class: "muted" }, "Set RPI_TEST_RECIPIENTS to enable test sends."),
           h("button", { class: "secondary", disabled: !testTo.length, onclick: () => api("POST", `/outreach/drafts/${d.id}/test-send`, { to: to.value })
@@ -389,7 +400,9 @@ const views = {
         ? `Sending enabled by ${settings.enabled_by} · limit ${settings.daily_send_limit}/day · ${settings.min_days_between_contacts}-day contact spacing`
         : "Sending is disabled (research and drafts only). An admin can enable it under Administration once sender identity and postal address are set."),
       panel("Drafts", table([{ label: "Created", render: r => date(r.created_at) }, { label: "Creator", key: "display_name" },
-        { label: "Subject", key: "subject" }, { label: "Status", render: r => pill(r.status) }, { label: "Valid", render: r => r.validation?.ok ? "yes" : "no" },
+        { label: "Subject", key: "subject" }, { label: "Status", render: r => pill(r.status) },
+        { label: "Scheduled", render: r => r.scheduled_send_at ? new Date(r.scheduled_send_at).toLocaleString() : "—" },
+        { label: "Valid", render: r => r.validation?.ok ? "yes" : "no" },
         { label: "Generator", key: "generator" }], drafts, show)), detail);
   },
 
