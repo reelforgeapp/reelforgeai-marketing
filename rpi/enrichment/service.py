@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -348,15 +348,24 @@ class ResearchService:
             "ORDER BY created_at DESC LIMIT 1", creator_id)
 
         content_provider = allowed_content[0]["provider"] if allowed_content else None
+        last_upload = snap["last_upload_at"] if snap else None
+        uploads_90d = snap["uploads_last_90d"] if snap else None
+        activity_provider = snap["provider"] if snap else None
+        dates = [r["published_at"] for r in allowed_content if r["published_at"]]
+        if last_upload is None and uploads_90d is None and dates:
+            # Search snapshots carry no activity; stored recent content does
+            # (a lower bound on uploads, since only recent items are kept).
+            cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+            last_upload, uploads_90d, activity_provider = max(dates), sum(d >= cutoff for d in dates), content_provider
         inp = QualificationInput(
             niche_relevance=Sourced(analysis.computed_relevance if analysis else None, content_provider,
                                     "content_inferred", f"{analysis.method if analysis else 'none'} over {len(video_labels)} videos"),
             classification_confidence=analysis.confidence if analysis else 0.0,
             best_icp_fit=Sourced(best.fit if best else None, None, "mixed", best.name if best else "no ICP evaluable"),
             icp_completeness=best.completeness if best else 0.0,
-            last_upload_at=snap["last_upload_at"] if snap else None,
-            uploads_last_90d=snap["uploads_last_90d"] if snap else None,
-            activity_provider=snap["provider"] if snap else None,
+            last_upload_at=last_upload,
+            uploads_last_90d=uploads_90d,
+            activity_provider=activity_provider,
             subscribers=snap["subscribers"] if snap else None,
             subscribers_provider=snap["provider"] if snap else None,
             relevant_sponsorships=relevant_spons,

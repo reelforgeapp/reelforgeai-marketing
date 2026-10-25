@@ -121,3 +121,12 @@ async def test_llm_failure_falls_back_to_prefilter():
     result = await analyze_creator(FakeLLM(None), videos(["Hmm", "Okay"]), fast=FAST, force_llm=True)
     assert result.method == "keyword_prefilter"
     assert any("Claude analysis unavailable" in r for r in result.uncertainty_reasons)
+
+
+def test_current_ai_video_tools_are_recognized():
+    from rpi.content_intelligence.prefilter import match_text
+
+    for title in ("Kling 4 is FINALLY Here... Can It Beat Seedance 2.5?", "How to Create Stickman Animation with AI",
+                  "Make 30 Minutes Long Ai Videos | FULL COURSE", "Higgsfield API: Create Long 3D Cartoons"):
+        assert "ai_video_tools" in match_text("t", title, "").labels, title
+    assert not match_text("t", "Self-Improvement Is the New Religion", "").labels

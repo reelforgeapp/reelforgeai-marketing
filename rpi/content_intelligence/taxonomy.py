@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-TAXONOMY_VERSION = "2026-10-25.1"
+TAXONOMY_VERSION = "2026-10-25.2"
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,12 @@ LABELS: tuple[Label, ...] = (
         "ai_video_tools", "AI video tools", 0.9,
         "Reviews, tutorials and comparisons of AI video generation/editing tools.",
         (r"\bai\s+video\s+(generator|maker|editor|editing|tool)s?\b", r"text[\s-]to[\s-]video",
-         r"\b(invideo|pictory|fliki|opus\s*clip|zebracat|revid|crayo|autoshorts|submagic|vizard|klap|heygen|synthesia)\b"),
+         r"\b(invideo|pictory|fliki|opus\s*clip|zebracat|revid|crayo|autoshorts|submagic|vizard|klap|heygen|synthesia)\b",
+         # Generators and workflows named in live CreatorDB results (2026-10-25).
+         r"\b(seedance|kling|higgsfield|hailuo|pixverse|vidu|dreamina|kaiber|runway\s*ml|luma\s+(ai|dream\s+machine)|"
+         r"veo\s*\d|sora\s*\d?|wan\s*2|flova|nano\s+banana)\b",
+         r"\bai\s+(videos?|films?|filmmaking|animations?|movies?|music\s+videos?|cartoons?|documentar(y|ies))\b",
+         r"(animation|videos?|documentar(y|ies)|cartoons?)\s+(with|using)\s+ai\b"),
     ),
     Label(
         "ai_voice_generation", "AI voice generation", 0.7,
