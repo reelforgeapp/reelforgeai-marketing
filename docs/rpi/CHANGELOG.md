@@ -1,5 +1,22 @@
 # RPI changelog
 
+## 0.2.0 — 2026-10-25
+
+* **Autopilot** (migration `007_rpi_autopilot`, `rpi.administration.autopilot`): a daily worker job
+  (`rpi_autopilot`, 07:30 America/New_York) that drafts outreach for recommended creators, approves its own valid
+  template drafts when allowed, schedules approved drafts into free send days, and researches more creators when
+  fewer than the target number of messages are waiting. Off by default; admins configure it on the new *Autopilot*
+  page (`GET/PUT /autopilot`, `POST /autopilot/run`). It never reads replies or sends follow-ups.
+* **Per-job credit caps**: `CallContext.unit_caps` / job param `unit_caps` make the provider gateway refuse a call
+  when the job's committed provider units plus the call's documented worst case would pass the cap, independent of
+  USD prices. Autopilot jobs get what is left of the weekly allowance.
+* Discovery runs return `next_page_tokens`; autopilot keeps a per-preset cursor so it never pays for the same page
+  twice.
+* Draft creation and approval moved to `rpi.outreach.service`, shared by the API and the autopilot. A draft's
+  default contact is now the first email not marked invalid or undeliverable.
+* Fix: a job that raised no longer overwrites the progress it had saved, so resuming it does not pay for the same
+  creators again.
+
 ## 0.1.9 — 2026-10-25
 
 * **Scheduled sends** (migration `006_rpi_scheduled_sends`): approved drafts get a *send at* time (dashboard

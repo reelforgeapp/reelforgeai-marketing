@@ -406,6 +406,49 @@ const views = {
         { label: "Generator", key: "generator" }], drafts, show)), detail);
   },
 
+  async autopilot() {
+    const a = await api("GET", "/autopilot");
+    const local = v => v ? new Date(v).toLocaleString() : "—";
+    const check = (v) => { const i = h("input", { type: "checkbox" }); i.checked = !!v; return i; };
+    const n = (v, min, max) => h("input", { type: "number", min, max, step: "1", value: v });
+    const f = { enabled: check(a.enabled), auto_approve: check(a.auto_approve), weekly_credit_cap: n(a.weekly_credit_cap, 0, 100000),
+      target_queue: n(a.target_queue, 0, 100), send_time: h("input", { type: "time", value: a.send_time }),
+      discover_per_run: n(a.discover_per_run, 1, 100), screen_per_run: n(a.screen_per_run, 0, 100), analyze_per_run: n(a.analyze_per_run, 0, 50) };
+    const save = () => api("PUT", "/autopilot", { enabled: f.enabled.checked, auto_approve: f.auto_approve.checked,
+      weekly_credit_cap: Number(f.weekly_credit_cap.value), target_queue: Number(f.target_queue.value), send_time: f.send_time.value,
+      discover_per_run: Number(f.discover_per_run.value), screen_per_run: Number(f.screen_per_run.value),
+      analyze_per_run: Number(f.analyze_per_run.value), presets: a.presets })
+      .then(() => { flash("Autopilot settings saved"); views.autopilot(); }).catch(e => flash(e.message, true));
+    const run = a.last_run || {};
+    const research = run.research;
+    const list = (title, items) => items && items.length ? h("div", {}, h("strong", {}, title), h("ul", {}, items.map(i => h("li", {}, typeof i === "string" ? i : `${i.creator}: ${local(i.send_at)}`)))) : null;
+    const w = a.send_window;
+    setView("Autopilot",
+      h("div", { class: a.enabled ? "panel" : "notice" }, a.enabled
+        ? `Autopilot is on${a.auto_approve ? " and approves its own drafts" : "; its drafts wait for your approval"}. Research spends at most ${num(a.weekly_credit_cap)} CreatorDB credits in any 7 days. Replies are not read: answer them from your inbox and move the creator in the CRM.`
+        : "Autopilot is off. Turn it on below to research, draft, approve and schedule without you. Sends still go through every Outreach rule and the daily limit."),
+      h("div", { class: "grid" },
+        card("Messages waiting", `${num(a.queue)} / ${num(a.target_queue)}`, h("div", { class: "muted" }, "research runs when below target")),
+        card("Credits used (7 days)", num(a.credits_used_7d)), card("Credits left (7 days)", num(a.credits_left_7d)),
+        card("Qualified, not yet screened", num(a.candidates_waiting)),
+        card("Next search", a.next_search ? `${a.next_search.preset} from #${Number(a.next_search.page_token || 0) + 1}` : "all presets searched")),
+      panel("Settings (admin)", h("div", { class: "row" },
+        field("On", f.enabled), field("Approve its own drafts", f.auto_approve), field("Weekly credit allowance", f.weekly_credit_cap),
+        field("Keep this many messages waiting", f.target_queue), field(`Send time (${w.timezone})`, f.send_time)),
+        h("div", { class: "row" }, field("Creators per search", f.discover_per_run), field("Screen per run (3 credits each)", f.screen_per_run),
+          field("Deep-analyze per run (up to 20 credits each)", f.analyze_per_run),
+          h("button", { onclick: save }, "Save"),
+          h("button", { class: "secondary", onclick: () => api("POST", "/autopilot/run").then(() => flash("Autopilot run queued; refresh in a few minutes")).catch(e => flash(e.message, true)) }, "Run now")),
+        h("p", { class: "muted" }, `Runs daily at 07:30 ${w.timezone}. Sends go out ${w.weekdays_only ? "on weekdays " : ""}inside ${w.window}, at most the Outreach daily limit per day.`)),
+      panel("Scheduled sends", a.upcoming.length ? table([{ label: "Creator", key: "creator" }, { label: "Sends", render: r => local(r.send_at) },
+        { label: "Approved by", key: "approved_by" }], a.upcoming) : h("p", { class: "muted" }, "Nothing scheduled.")),
+      panel(`Last run ${a.last_run_at ? "(" + local(a.last_run_at) + ")" : ""}`, a.last_run_at ? h("div", {},
+        list("Drafted", run.drafted), list("Approved", run.approved), list("Scheduled", run.scheduled), list("Skipped", run.skipped),
+        h("p", {}, "Research: " + (typeof research === "object" && research
+          ? `${research.preset || "no search"}: ${num(research.screened)} screened, ${num(research.deep_analyzed)} deep-analyzed, ${num(research.recommended)} recommended, ${num(research.credits)} credits${research.stopped ? " (" + research.stopped + ")" : ""}`
+          : (research || "—")))) : h("p", { class: "muted" }, "Not run yet.")));
+  },
+
   async campaigns() {
     const model = h("select", {}, h("option", { value: "last_touch" }, "last touch (affiliate program)"), h("option", { value: "first_touch" }, "first touch"));
     const out = h("div");

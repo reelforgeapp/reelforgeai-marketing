@@ -204,6 +204,83 @@ async def revoke_principal(principal_id: str, ctx: RPIContext = Depends(get_ctx)
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Autopilot
+# --------------------------------------------------------------------------
+
+
+class AutopilotBody(BaseModel):
+    enabled: bool
+    auto_approve: bool
+    weekly_credit_cap: int = Field(ge=0, le=100_000)  # CreatorDB credits per rolling 7 days
+    target_queue: int = Field(default=5, ge=0, le=100)
+    send_time: str = Field(default="11:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    discover_per_run: int = Field(default=25, ge=1, le=100)
+    screen_per_run: int = Field(default=10, ge=0, le=100)
+    analyze_per_run: int = Field(default=5, ge=0, le=50)
+    presets: list[str] = Field(default_factory=lambda: ["quality", "quality_broad"], min_length=1, max_length=10)
+
+
+@router.get("/autopilot")
+async def get_autopilot(ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("viewer"))):
+    from rpi.administration.autopilot import status
+
+    async with ctx.pool.acquire() as conn:
+        return clean(await status(conn, ctx))
+
+
+@router.put("/autopilot")
+async def put_autopilot(body: AutopilotBody, ctx: RPIContext = Depends(get_ctx), p: Principal = Depends(require("admin"))):
+    from datetime import time as dtime
+
+    from rpi.administration.autopilot import window_bounds
+    from rpi.discovery.presets import PRESETS
+
+    unknown = [n for n in body.presets if n not in PRESETS]
+    if unknown:
+        raise HTTPException(422, f"unknown presets {unknown}; valid: {sorted(PRESETS)}")
+    start, end = window_bounds(ctx.settings.rpi_send_window)
+    if not start <= dtime.fromisoformat(body.send_time) <= end:
+        raise HTTPException(422, f"send_time must be inside the send window {ctx.settings.rpi_send_window} "
+                                 f"({ctx.settings.rpi_send_timezone})")
+    from rpi.administration.autopilot import AUTOPILOT_ACTOR
+
+    async with ctx.pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """UPDATE rpi_autopilot_settings SET enabled = $1, auto_approve = $2, weekly_credit_cap = $3,
+                       target_queue = $4, send_time = $5, discover_per_run = $6, screen_per_run = $7,
+                       analyze_per_run = $8, presets = $9, updated_by = $10, updated_at = NOW()""",
+                body.enabled, body.auto_approve, body.weekly_credit_cap, body.target_queue, body.send_time,
+                body.discover_per_run, body.screen_per_run, body.analyze_per_run, body.presets, p.actor)
+            unscheduled = 0
+            if not body.enabled:
+                # Off means off: what the autopilot approved is not sent. Turning it
+                # back on schedules those drafts again.
+                unscheduled = len(await conn.fetch(
+                    """UPDATE rpi_outreach_drafts SET scheduled_send_at = NULL
+                       WHERE status = 'approved' AND approved_by = $1 AND scheduled_send_at IS NOT NULL
+                       RETURNING id""", AUTOPILOT_ACTOR))
+            await audit(conn, p.actor, "autopilot.settings_changed", "autopilot", None,
+                        {**body.model_dump(), "unscheduled_autopilot_drafts": unscheduled})
+    return {"updated": True, "unscheduled_autopilot_drafts": unscheduled}
+
+
+@router.post("/autopilot/run")
+async def run_autopilot(inline: bool = False, ctx: RPIContext = Depends(get_ctx), p: Principal = Depends(require("admin"))):
+    """Run one autopilot cycle now (normally it runs once a day)."""
+    async with ctx.pool.acquire() as conn:
+        await audit(conn, p.actor, "autopilot.run_requested", "autopilot", None, {"inline": inline})
+    if inline:
+        from rpi.administration.autopilot import run_cycle
+
+        return clean(await run_cycle(ctx.pool, ctx))
+    from tasks.rpi_tasks import rpi_autopilot
+
+    rpi_autopilot.delay()
+    return {"status": "queued"}
+
+
 @router.post("/creators/{creator_id}/analytics/consent-url")
 async def analytics_consent(creator_id: str, ctx: RPIContext = Depends(get_ctx), p: Principal = Depends(require("approver"))):
     try:

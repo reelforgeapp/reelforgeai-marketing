@@ -192,6 +192,8 @@ class BudgetBackend(Protocol):
 
     async def release(self, reservation_id: str) -> None: ...
 
+    async def units_spent(self, job_id: str, provider: str) -> Decimal: ...
+
 
 # Arbitrary constant key for pg_advisory_xact_lock serializing reservations.
 BUDGET_LOCK_KEY = 7_340_118_221
@@ -329,6 +331,15 @@ class BudgetStore:
                 uuid.UUID(reservation_id),
             )
 
+    async def units_spent(self, job_id: str, provider: str) -> Decimal:
+        """Provider units (credits) a job has committed so far."""
+        async with self.pool.acquire() as conn:
+            v = await conn.fetchval(
+                """SELECT COALESCE(SUM(actual_units), 0) FROM rpi_spend_ledger
+                   WHERE job_id = $1 AND provider = $2 AND status = 'committed'""",
+                _uuid_or_none(job_id), provider)
+        return Decimal(v)
+
 
 class InMemoryBudget:
     """Budget backend for unit tests and offline evaluation runs."""
@@ -368,6 +379,7 @@ class InMemoryBudget:
             "creator_id": request.creator_id,
             "reserved": request.amount_usd,
             "actual": ZERO,
+            "units": ZERO,
             "status": "reserved",
         }
         return Reservation(rid, decision)
@@ -375,10 +387,15 @@ class InMemoryBudget:
     async def settle(self, reservation_id: str, actual_usd: Decimal, actual_units: Decimal = ZERO) -> None:
         entry = self.entries[reservation_id]
         entry["actual"] = actual_usd
+        entry["units"] = actual_units
         entry["status"] = "committed"
 
     async def release(self, reservation_id: str) -> None:
         self.entries[reservation_id]["status"] = "released"
+
+    async def units_spent(self, job_id: str, provider: str) -> Decimal:
+        return sum((e["units"] for e in self.entries.values()
+                    if e["status"] == "committed" and e["job_id"] == job_id and e["provider"] == provider), ZERO)
 
     @property
     def committed_total(self) -> Decimal:

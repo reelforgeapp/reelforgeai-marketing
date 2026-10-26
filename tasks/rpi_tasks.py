@@ -1,10 +1,12 @@
 """
 ReelForge Partner Intelligence - Celery tasks
 
-Scheduled tasks are limited to free, idempotent maintenance (retention,
-commission accrual, reconciliation alerts) and sending drafts an approver has
-explicitly scheduled. Paid research runs only when an operator starts a job;
-nothing on the beat schedule spends provider credits.
+Scheduled tasks: free, idempotent maintenance (retention, commission accrual,
+reconciliation alerts), sending scheduled approved drafts, and the autopilot.
+The autopilot is the only scheduled task that can spend provider credits, and
+only after an admin enables it with a weekly credit allowance
+(rpi.administration.autopilot); with it off, paid research runs only when an
+operator starts a job.
 """
 import sys
 sys.path.insert(0, '/app')
@@ -106,3 +108,22 @@ async def _send_scheduled_async() -> dict:
     if result.get("sent") or result.get("cancelled"):
         logger.info("RPI scheduled sends", sent=len(result["sent"]), cancelled=len(result["cancelled"]))
     return result
+
+
+@celery_app.task(bind=True, max_retries=0, queue='discovery', acks_late=True)
+def rpi_autopilot(self):
+    # No retry: a cycle is safe to rerun (it skips work already done), and the
+    # next scheduled run picks up anything this one could not finish.
+    return asyncio.run(_autopilot_async())
+
+
+async def _autopilot_async() -> dict:
+    from rpi.administration.autopilot import run_cycle
+    from rpi.api.context import build_context
+
+    pool = await get_database_async()
+    try:
+        ctx = build_context(pool, get_settings())
+        return await run_cycle(pool, ctx)
+    finally:
+        await pool.close()
