@@ -204,8 +204,14 @@ async def generate(llm: Optional[LLM], price: Optional[ModelPrice], ctx: DraftCo
     }
 
 
+def draft_key(creator_id, subject: str, body: str) -> str:
+    """Idempotency key of a generated draft. Edits keep the stored key, so a
+    draft whose text no longer matches its key was changed by a person."""
+    return hashlib.sha256(f"{creator_id}:{subject}:{body}".encode()).hexdigest()
+
+
 async def save_draft(conn, creator_id, contact_id, draft: dict, actor: str) -> str:
-    key = hashlib.sha256(f"{creator_id}:{draft['subject']}:{draft['body']}".encode()).hexdigest()
+    key = draft_key(creator_id, draft["subject"], draft["body"])
     draft_id = await conn.fetchval(
         """INSERT INTO rpi_outreach_drafts
            (creator_id, contact_id, subject, body_text, grounding, validation, generator, status, created_by, idempotency_key)

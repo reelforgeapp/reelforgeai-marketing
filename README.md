@@ -138,6 +138,10 @@ curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" https://your-app.onrender.com/trig
 | Auto-Enrollment | Every 3 hours | Start sequences |
 | YouTube data scrub | Daily 4:45 AM | Clear YouTube statistics older than 30 days (API policy) |
 
+RPI (`/rpi`) adds: *rpi-send-scheduled* (every 5 min, sends approved drafts that are due, inside the send
+window), *rpi-autopilot-daily* (07:30 ET; does nothing until enabled on the dashboard's *Autopilot* page, see
+`docs/rpi/OPERATIONS_RUNBOOK.md`), and daily retention and ledger checks.
+
 ### Pausing Partner Scout outreach
 
 `PARTNER_SCOUT_AUTO_OUTREACH_ENABLED=false` pauses Sequence Processing and Auto-Enrollment, including their

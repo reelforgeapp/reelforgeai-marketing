@@ -25,7 +25,9 @@
 * Email verification (Bouncer/Clearout/Hunter, already in this repo) is not yet wired into RPI contacts;
   contacts show `unverified` unless a hard bounce marks them undeliverable.
 * Reply detection is not automated: Brevo transactional sends do not report replies. Operators move creators to
-  `replied` manually.
+  `replied` manually. For the same reason the autopilot sends no follow-ups.
+* Autopilot discovery stops when every preset has been paged through (an alert says so); it does not invent new
+  search criteria. CreatorDB adds creators over time, so clearing `discovery_cursor` later can find new ones.
 * Payment fees are estimated (2.9% + $0.30) and dispute fees are estimated ($15); balance-transaction fees are
   not fetched. External reconciliation against Stripe payouts is not implemented.
 * Chargebacks are recorded without a customer when the dispute payload only carries a charge id.

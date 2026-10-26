@@ -60,6 +60,7 @@ class DiscoveryRequest:
     job_id: Optional[str] = None
     job_budget_usd: Optional[Decimal] = None
     dry_run: bool = False
+    unit_caps: dict[str, Decimal] = field(default_factory=dict)  # see CallContext.unit_caps
 
 
 @dataclass
@@ -175,7 +176,8 @@ class DiscoveryEngine:
                 "primary_provider": primary.name if primary else None}
 
     async def _search(self, adapter, criteria: CreatorSearchCriteria, strategy: str, limit: int, ctx: CallContext,
-                      warnings: list[str], pools: Optional[dict] = None) -> list[Candidate]:
+                      warnings: list[str], pools: Optional[dict] = None,
+                      cursors: Optional[dict] = None) -> list[Candidate]:
         out: list[Candidate] = []
         # Request only as many as needed: a page costs the same at any size,
         # but every stored candidate is a candidate for paid enrichment.
@@ -194,6 +196,9 @@ class DiscoveryEngine:
             for c in result.data or []:
                 reasons = [f"{strategy} search via {adapter.name}"] + ([f"matched filters: {matched}"] if matched else [])
                 out.append(Candidate(c, strategy, adapter.name, reasons, applied))
+            if cursors is not None:
+                # Where the next run should continue; None once the provider has no more pages.
+                cursors[strategy] = result.next_page_token if result.data else None
             if not result.next_page_token or not result.data:
                 break
             page = page.model_copy(update={"page_token": result.next_page_token})
@@ -212,7 +217,8 @@ class DiscoveryEngine:
 
         primary = self.primary()
         warnings: list[str] = []
-        ctx = CallContext(job_id=request.job_id, priority=Priority.NORMAL, job_budget_usd=request.job_budget_usd)
+        ctx = CallContext(job_id=request.job_id, priority=Priority.NORMAL, job_budget_usd=request.job_budget_usd,
+                          unit_caps=dict(request.unit_caps))
         async with self.pool.acquire() as conn:
             run_id = await conn.fetchval(
                 """INSERT INTO rpi_discovery_runs (job_id, criteria, strategies, created_by)
@@ -222,6 +228,7 @@ class DiscoveryEngine:
 
         candidates: list[Candidate] = []
         pools: dict[str, int] = {}
+        cursors: dict[str, Optional[str]] = {}
         search_strategies = [s for s in request.strategies if s in ("niche", "competitor_sponsorship", "emerging")]
         per_limit = max(1, request.max_candidates // max(1, len(search_strategies) or 1))
         if search_strategies and primary is None:
@@ -243,7 +250,7 @@ class DiscoveryEngine:
             else:
                 names = request.competitor_names or await self._competitor_names()
                 crit = request.criteria.model_copy(update={"sponsored_brands": names, "keywords": []})
-            found = await self._search(primary, crit, strategy, per_limit, ctx, warnings, pools)
+            found = await self._search(primary, crit, strategy, per_limit, ctx, warnings, pools, cursors)
             if strategy == "competitor_sponsorship":
                 for c in found:
                     c.reasons.append("associated with competitor brands: " + ", ".join(crit.sponsored_brands[:5]))
@@ -254,7 +261,10 @@ class DiscoveryEngine:
         if "lookalike" in request.strategies:
             warnings.append("lookalike discovery needs outcome data from completed campaigns; not yet available (Milestone 7)")
 
-        return await self._persist(run_id, request, candidates, warnings, estimate, actor, pools)
+        result = await self._persist(run_id, request, candidates, warnings, estimate, actor, pools)
+        # Strategies that searched successfully, with the page token to continue from (None = exhausted).
+        result["next_page_tokens"] = cursors
+        return result
 
     async def _competitor_names(self) -> list[str]:
         async with self.pool.acquire() as conn:

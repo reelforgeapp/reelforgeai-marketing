@@ -139,6 +139,10 @@ class CallContext:
     priority: Priority = Priority.NORMAL
     job_budget_usd: Optional[Decimal] = None
     use_cache: bool = True
+    # Hard ceiling on provider units (e.g. CreatorDB credits) the job may use,
+    # by provider name. Checked against the job's committed units plus the
+    # call's documented worst-case cost, whatever the USD price.
+    unit_caps: dict[str, Decimal] = field(default_factory=dict)
 
 
 def request_key(provider: str, operation: Capability, args: tuple, kwargs: dict) -> str:
@@ -205,6 +209,16 @@ class ProviderGateway:
                 )
 
         estimate = adapter.estimate_cost(operation, **kwargs)
+        cap = ctx.unit_caps.get(adapter.name)
+        if cap is not None:
+            used = await self.budget.units_spent(ctx.job_id, adapter.name) if ctx.job_id else Decimal("0")
+            if used + estimate.units > cap:
+                reason = (f"job {adapter.name} credit cap {cap} would be exceeded "
+                          f"(used {used}, this call up to {estimate.units})")
+                await self._log(adapter, operation, key, ctx, "budget_denied", Decimal("0"), Decimal("0"), False, 0,
+                                error=reason)
+                return ProviderResult(adapter.name, operation.value, ResultStatus.BUDGET_DENIED, error=reason,
+                                      error_code="budget_denied")
         reservation = await self.budget.reserve(ReservationRequest(
             adapter.name, operation.value, estimate.usd, ctx.priority, ctx.job_id, ctx.creator_id, ctx.job_budget_usd,
         ))

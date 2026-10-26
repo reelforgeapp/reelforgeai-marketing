@@ -43,7 +43,7 @@ async def db_pool():
             pytest.exit(f"refusing to reset database '{name}': test database names must contain 'test'")
         await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
         await conn.execute((ROOT / "database" / "schema.sql").read_text())
-        for migration in ("005_rpi_core.sql", "006_rpi_scheduled_sends.sql"):
+        for migration in ("005_rpi_core.sql", "006_rpi_scheduled_sends.sql", "007_rpi_autopilot.sql"):
             await conn.execute((ROOT / "database" / "migrations" / migration).read_text())
         from scripts.rpi_migrate import seed
 
@@ -53,7 +53,7 @@ async def db_pool():
 
 
 RESET_KEEP = {"rpi_workspaces", "rpi_schema_migrations", "rpi_data_retention_rules", "rpi_budgets",
-              "rpi_outreach_settings", "rpi_competitors"}
+              "rpi_outreach_settings", "rpi_competitors", "rpi_autopilot_settings"}
 
 
 @pytest.fixture
@@ -66,6 +66,10 @@ async def pool(db_pool):
         await conn.execute("TRUNCATE marketing_prospects CASCADE")
         await conn.execute("UPDATE rpi_outreach_settings SET sending_enabled = FALSE, daily_send_limit = 10, "
                            "min_days_between_contacts = 30, sender_name = NULL, sender_email = NULL, postal_address = NULL")
+        await conn.execute("UPDATE rpi_autopilot_settings SET enabled = FALSE, auto_approve = FALSE, weekly_credit_cap = 0, "
+                           "target_queue = 5, send_time = '11:00', discover_per_run = 25, screen_per_run = 10, "
+                           "analyze_per_run = 5, presets = ARRAY['quality', 'quality_broad'], discovery_cursor = '{}', "
+                           "last_run_at = NULL, last_run = '{}'")
         await conn.execute("UPDATE rpi_budgets SET active = TRUE")
         await conn.execute("UPDATE rpi_budgets SET limit_usd = 200 WHERE scope = 'global' AND period = 'monthly'")
         await conn.execute("UPDATE rpi_budgets SET limit_usd = 25 WHERE scope = 'global' AND period = 'daily'")

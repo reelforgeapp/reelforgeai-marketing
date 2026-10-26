@@ -8,4 +8,4 @@ existing ReelForge Marketing Engine (Partner Scout) in this repository.
 See docs/rpi/ARCHITECTURE.md.
 """
 
-RPI_VERSION = "0.1.0"
+RPI_VERSION = "0.2.0"

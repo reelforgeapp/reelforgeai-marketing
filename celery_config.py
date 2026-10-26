@@ -101,6 +101,14 @@ celery_app.conf.update(
             'schedule': crontab(minute='*/5'),
             'options': {'queue': 'default'}
         },
+        # RPI autopilot, once a day before the 11:00 sends (crontab hours are in
+        # this app's timezone, America/New_York). Does nothing unless an admin
+        # enabled it; research spends only the weekly credit allowance.
+        'rpi-autopilot-daily': {
+            'task': 'tasks.rpi_tasks.rpi_autopilot',
+            'schedule': crontab(hour=7, minute=30),
+            'options': {'queue': 'discovery'}
+        },
     },
 )
 

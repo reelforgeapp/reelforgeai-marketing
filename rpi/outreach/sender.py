@@ -355,6 +355,7 @@ async def test_send(pool, draft_id: str, to_email: str, actor: str, send_fn: Sen
 # --------------------------------------------------------------------------
 
 SCHEDULER_ACTOR = "scheduler:rpi"
+AUTOPILOT_ACTOR = "autopilot:rpi"  # rpi.administration.autopilot approves and schedules as this actor
 # Refusals that clear up on their own: keep the schedule and try again later.
 TRANSIENT_REFUSALS = ("daily send limit", "sending is disabled")
 SENT_TODAY_SQL = ("SELECT COUNT(*) FROM rpi_outreach_drafts WHERE status IN ('sent', 'sending') "
@@ -386,9 +387,13 @@ async def send_due_drafts(pool, send_fn: SendFn, *, public_base_url: str, now: O
         room = settings_row["daily_send_limit"] - await conn.fetchval(SENT_TODAY_SQL)
         if room <= 0:
             return {"status": "daily_limit_reached"}
+        # Drafts the autopilot approved go out only while the autopilot is on.
         due = await conn.fetch(
             """SELECT id FROM rpi_outreach_drafts WHERE status = 'approved' AND scheduled_send_at IS NOT NULL
-                 AND scheduled_send_at <= $1 ORDER BY scheduled_send_at LIMIT $2""", now, room)
+                 AND scheduled_send_at <= $1
+                 AND (approved_by IS DISTINCT FROM $3
+                      OR COALESCE((SELECT enabled FROM rpi_autopilot_settings LIMIT 1), FALSE))
+               ORDER BY scheduled_send_at LIMIT $2""", now, room, AUTOPILOT_ACTOR)
     results: dict = {"status": "ok", "sent": [], "kept": [], "cancelled": []}
     for row in due:
         draft_id = str(row["id"])
