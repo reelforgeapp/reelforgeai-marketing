@@ -110,6 +110,14 @@ creators scored in production on 2026-10-26 had slopes of 0.59–1.19. @BeerMone
 Any `elevated` signal makes the risk level `elevated_review` and rejects the creator. It uses the per-video
 stats screening already buys, so it costs no credits.
 
+**Uniform engagement** (`uniform_engagement`, severity `elevated`): the case flat engagement cannot judge, where views
+are bought too and every video lands on about the same views and likes. Over at least 10 of the same videos, it flags
+when the 90th-percentile video has under 2× the views of the 10th and under 2.5× the likes. NyesWorldTV (views
+within 1.8×, likes within 1.3×; on YouTube, views that stopped growing after about four days) and Tech Explorer AI
+(1.8× and 2.2×) were flagged; both drew comments from the same comment farm. Of the 55 creators scored by
+2026-10-26 no other had views under 2× and likes under 3×. Like flat engagement it rejects the creator
+(`reject_suspect_engagement`).
+
 ## Evaluation benchmark
 
 * Labels: `rpi_benchmark_labels`, imported from a manually reviewed CSV (`docs/rpi/benchmark_template.csv`) with

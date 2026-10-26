@@ -29,8 +29,10 @@
 * The spoken-language gate trusts the language uploaders declare on their videos. Channels that declare none
   pass unchecked, and the gate fails open (no YouTube key, quota exhausted, API error). Its quota is shared with
   Partner Scout's daily YouTube discovery.
-* Bought engagement is detected only when likes stay flat while views vary (`flat_engagement`). Likes bought in
-  proportion to views, bought views alone, and generated comment text are not detected; comments are not read.
+* Bought engagement is detected when likes stay flat while views vary (`flat_engagement`) or when views and likes
+  are both nearly the same on every video (`uniform_engagement`). Likes bought in proportion to views, bought views
+  alone, and generated comments are not detected; RPI does not read comments. On 2026-10-26 Techvid Ai and
+  NexcopeAI had organic-looking numbers but comments from the same farm as NyesWorldTV.
 * Email verification (Bouncer/Clearout/Hunter, already in this repo) is not yet wired into RPI contacts;
   contacts show `unverified` unless a hard bounce marks them undeliverable.
 * Replies are detected through the partnership bot, which reads the inbox once a day (14:00 UTC). A creator is

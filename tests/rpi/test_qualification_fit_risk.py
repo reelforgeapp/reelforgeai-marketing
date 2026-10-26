@@ -82,6 +82,38 @@ def test_flat_engagement_needs_enough_evidence():
     assert not flagged(videos([(50_000 + i * 2_000, 2_500, 290) for i in range(8)]))
 
 
+# NyesWorldTV, 2026-10-26: every video lands on ~36-42k views and ~2,000-2,800 likes, whatever its age.
+UNIFORM = [(36_242, 2_349, 150), (38_424, 2_579, 160), (40_577, 2_802, 140), (35_530, 2_400, 130), (41_966, 2_700, 170),
+           (39_147, 2_756, 169), (36_479, 2_789, 121), (37_800, 2_450, 155), (38_900, 2_600, 148), (34_512, 2_577, 141),
+           (39_804, 2_520, 133), (37_100, 2_690, 162)]
+
+
+def test_uniform_views_and_likes_are_elevated():
+    result = screen(videos(UNIFORM), [], subscribers=135_000, now=NOW)
+    assert [s["signal_type"] for s in result["signals"]] == ["uniform_engagement"]  # flat engagement abstains here
+    uniform = result["signals"][0]
+    assert uniform["severity"] == "elevated" and "12 videos" in uniform["detail"]
+    assert result["level"] == "elevated_review"
+
+
+def test_consistent_views_with_varied_likes_are_not_uniform():
+    # APEX_001 and NexcopeAI: steady views (under 2x) but likes that vary 3x or more.
+    rows = [(v, int(v * r), 20) for v, r in zip([12_000, 13_500, 15_000, 16_800, 18_000, 19_500, 21_000, 22_000,
+                                                  14_200, 17_300, 20_100, 12_900],
+                                                 [0.01, 0.03, 0.02, 0.05, 0.015, 0.04, 0.025, 0.06, 0.012, 0.035, 0.05, 0.02])]
+    assert not [s for s in screen(videos(rows), [], subscribers=None, now=NOW)["signals"] if s["severity"] == "elevated"]
+
+
+def test_uniform_engagement_needs_ten_videos_and_skips_varied_views():
+    def flagged(vids):
+        return any(s["signal_type"] == "uniform_engagement" for s in screen(vids, [], subscribers=None, now=NOW)["signals"])
+
+    assert flagged(videos(UNIFORM))
+    assert not flagged(videos(UNIFORM[:9]))  # too few to call it uniform
+    assert not flagged(videos(BOUGHT))  # views vary: flat engagement's case, not this one
+    assert not flagged(videos(UNIFORM[:11], age_days=1))  # the 2 newest are still being delivered, leaving 9
+
+
 def test_size_is_soft_preference():
     assert size_score(50_000, 10_000, 150_000) == 1.0
     assert 0.4 <= size_score(400_000, 10_000, 150_000) < 1.0
