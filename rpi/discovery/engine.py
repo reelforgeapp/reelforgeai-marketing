@@ -8,6 +8,10 @@ Discovery engine: independent strategies, one deduplicated candidate set.
   emerging                smaller, recently active creators in the niche
   lookalike               not available until campaign outcomes exist
 
+Before candidates are stored, each YouTube channel's spoken language is checked
+for free (rpi.qualification.language_gate); a channel whose recent videos are
+mostly in another language is stored as disqualified and never screened.
+
 Every run records totals, duplicates, the reason each candidate was
 included, missing fields, niche distribution and the estimated cost of the
 next enrichment stage. For audience_first it also records how many candidates
@@ -36,6 +40,7 @@ from rpi.identity.store import resolve_after_upsert
 from rpi.providers.base import Capability, CreatorSearchCriteria, NormalizedCreator, ProviderAdapter, ResultStatus
 from rpi.providers.gateway import CallContext, ProviderGateway
 from rpi.providers.registry import ProviderRegistry
+from rpi.qualification import language_gate
 from rpi.storage.creators import record_snapshot, upsert_creator
 
 logger = structlog.get_logger()
@@ -261,10 +266,30 @@ class DiscoveryEngine:
         if "lookalike" in request.strategies:
             warnings.append("lookalike discovery needs outcome data from completed campaigns; not yet available (Milestone 7)")
 
-        result = await self._persist(run_id, request, candidates, warnings, estimate, actor, pools)
+        languages = await self._check_languages(candidates, ctx, warnings)
+        result = await self._persist(run_id, request, candidates, warnings, estimate, actor, pools, languages)
         # Strategies that searched successfully, with the page token to continue from (None = exhausted).
         result["next_page_tokens"] = cursors
         return result
+
+    async def _check_languages(self, candidates: list[Candidate], ctx: CallContext,
+                               warnings: list[str]) -> dict[str, language_gate.LanguageVerdict]:
+        """Spoken-language verdicts for the YouTube channels found, by channel id."""
+        if self.registry.first_supporting(Capability.VIDEO_LANGUAGES, language_gate.PREFERENCE) is None:
+            warnings.append("spoken-language check skipped: YouTube Data API not configured")
+            return {}
+        verdicts: dict[str, language_gate.LanguageVerdict] = {}
+        for cand in candidates:
+            cid = cand.creator.platform_account_id
+            if cand.creator.platform != "youtube" or cid in verdicts:
+                continue
+            verdict = await language_gate.check(self.gateway, self.registry, cid, ctx)
+            if verdict:
+                verdicts[cid] = verdict
+        unchecked = len({c.creator.platform_account_id for c in candidates if c.creator.platform == "youtube"}) - len(verdicts)
+        if unchecked:
+            warnings.append(f"spoken-language check unavailable for {unchecked} channel(s); they continue unchecked")
+        return verdicts
 
     async def _competitor_names(self) -> list[str]:
         async with self.pool.acquire() as conn:
@@ -298,12 +323,12 @@ class DiscoveryEngine:
         return out
 
     async def _persist(self, run_id, request, candidates: list[Candidate], warnings, estimate, actor,
-                       pools: Optional[dict] = None) -> dict:
+                       pools: Optional[dict] = None, languages: Optional[dict] = None) -> dict:
         seen: dict[str, str] = {}
         strategy_hits: dict[str, set] = {}
         stats = Counter()
         niche = Counter()
-        new_creators = duplicates = prelim = 0
+        new_creators = duplicates = prelim = non_english = 0
         async with self.pool.acquire() as conn:
             for cand in candidates[: request.max_candidates * 2]:
                 key = f"{cand.creator.platform}:{cand.creator.platform_account_id}"
@@ -325,6 +350,18 @@ class DiscoveryEngine:
                     if await is_suppressed(conn, creator_id=creator_id):
                         cand.reasons.append("on suppression list: will not be contacted")
                     ok, score, reasons, missing = preliminary_screen(cand.creator, request.criteria, cand.applied, cand.rank)
+                    verdict = (languages or {}).get(cand.creator.platform_account_id)
+                    if verdict and verdict.rejected:
+                        ok = False
+                        reasons.append(verdict.detail)
+                        if not in_run:
+                            non_english += 1
+                            status = await conn.fetchval("SELECT pipeline_status FROM rpi_creators WHERE id = $1",
+                                                         creator_id)
+                            if status == "discovered":  # never overrides a creator already in the CRM
+                                await language_gate.disqualify(conn, creator_id, verdict, actor)
+                    elif verdict:
+                        reasons.append(verdict.detail)
                     prelim += int(ok and not in_run)
                     labels = match_text("p", cand.creator.display_name, " ".join([cand.creator.description or "", *cand.creator.categories])).labels
                     if not in_run:
@@ -375,6 +412,7 @@ class DiscoveryEngine:
             "duplicates": duplicates,
             "new_creators": new_creators,
             "preliminary_qualified": prelim,
+            "non_english": non_english,
             "niche_distribution": dict(niche),
             "strategy_breakdown": breakdown,
             "estimated_next_stage_cost_usd": str(stage2_estimate),

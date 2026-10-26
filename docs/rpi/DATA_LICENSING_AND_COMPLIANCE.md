@@ -21,8 +21,13 @@ interpretation and are marked `verified: false`.
 
 * **Scoring gate**: `scoring_allowed(provider)` decides whether a provider's fields may feed qualification scores,
   audience fit, risk screening or classification. Excluded inputs are listed in `excluded_sources` on every score.
-* **YouTube**: the adapter marks records `derived_metrics_prohibited` and calls only `channels.list`. Partner Scout's
-  existing YouTube discovery is separate and unchanged (see IMPLEMENTATION_PLAN risk 6).
+* **YouTube**: the adapter marks records `derived_metrics_prohibited` and calls `channels.list`, plus
+  `playlistItems.list` and `videos.list` for the spoken-language gate (`rpi.qualification.language_gate`). The gate
+  reads each recent video's `defaultAudioLanguage` and uses it only to decide whether a creator is researched at
+  all: no score, metric or ranking is built from it (III.E.4(h)), the raw values stay in the 30-day cache, and only
+  the decision is stored on the creator. Treating a raw-field filter as outside III.E.4(h) is the operator's
+  judgment (2026-10-26), not a reviewed legal opinion. Partner Scout's existing YouTube discovery is separate and
+  unchanged (see IMPLEMENTATION_PLAN risk 6).
 * **Retention**: `rpi_data_provenance.expires_at` is set from the policy at write time; the daily retention task
   deletes expired provenance and cascades to the facts. Expired data is not refreshed automatically, because
   refreshing costs money.

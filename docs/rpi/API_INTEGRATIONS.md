@@ -62,7 +62,7 @@ and OPERATIONS_RUNBOOK.md → Credit-efficient discovery.
 Used only when an operator selects `audience_first` for a discovery run. Its incremental value is recorded per
 run (`not_found_by_other_strategies`).
 
-## YouTube Data API v3 — verification only
+## YouTube Data API v3 — verification and the spoken-language gate
 
 | Item | Status | Detail |
 |---|---|---|
@@ -74,8 +74,12 @@ run (`not_found_by_other_strategies`).
 | Quota costs (10,000/day; search 100, channels 1) | ⚠️ | Quota page not fetched |
 | commentThreads | ⚠️ | Not verified; comment analysis not implemented |
 
-Source: https://developers.google.com/youtube/terms/developer-policies. RPI calls only `channels.list`
-(verification), marks records `derived_metrics_prohibited`, expires them at 30 days, and scoring ignores them.
+Source: https://developers.google.com/youtube/terms/developer-policies. RPI calls `channels.list`
+(verification) and, for the spoken-language gate, `playlistItems.list` on a channel's uploads playlist plus
+`videos.list` for those videos' `snippet.defaultAudioLanguage` (2 quota units per channel; never the 100-unit
+`search.list`). Records are marked `derived_metrics_prohibited`, cached at most 30 days, and scoring ignores them.
+The gate uses the raw language values only as a pass/fail filter and stores only the decision
+(`disqualified_reason = non_english_audio`); the quota is shared with Partner Scout's discovery.
 
 ## YouTube Analytics API — creator-authorized
 

@@ -98,7 +98,7 @@ async def run_job(pool, job_id: str, *, discovery, research, stages: StageSizes,
             )
             result = await discovery.run(req, job["created_by"])
             status = "paused_budget" if any("budget" in w for w in result.get("warnings", [])) else "succeeded"
-            progress = {"discovery_run_id": result["run_id"], "summary": {k: result[k] for k in ("total_found", "new_creators", "preliminary_qualified")}}
+            progress = {"discovery_run_id": result["run_id"], "summary": {k: result[k] for k in ("total_found", "new_creators", "preliminary_qualified", "non_english")}}
         elif job["job_type"] in ("screen", "deep"):
             ids = params.get("creator_ids", [])
             status, progress = await _process(pool, research, job["job_type"], ids, ctx, progress, job["created_by"], job_id)
@@ -166,7 +166,7 @@ async def _funnel(pool, research, ctx, progress, stages: StageSizes, actor, job_
         to_deep = await conn.fetch(
             """SELECT DISTINCT ON (q.creator_id) q.creator_id, q.overall FROM rpi_qualification_scores q
                JOIN rpi_creators c ON c.id = q.creator_id
-               WHERE c.pipeline_status = 'preliminary_qualified'
+               WHERE c.pipeline_status = 'preliminary_qualified' AND c.disqualified_reason IS NULL
                ORDER BY q.creator_id, q.computed_at DESC""")
     ranked = sorted(to_deep, key=lambda r: r["overall"] or 0, reverse=True)[:analyze_n]
     status, p3 = await _process(pool, research, "deep", [str(r["creator_id"]) for r in ranked], ctx,
@@ -205,7 +205,7 @@ async def _autopilot(pool, discovery, research, ctx, progress, stages: StageSize
             progress = {**progress, "discovery": {
                 "run_id": result["run_id"], "preset": params["preset"], "page_token": params.get("page_token"),
                 "searched": "niche" in tokens, "next_page_token": tokens.get("niche"),
-                **{k: result[k] for k in ("total_found", "new_creators", "preliminary_qualified")},
+                **{k: result[k] for k in ("total_found", "new_creators", "preliminary_qualified", "non_english")},
                 "warnings": result.get("warnings", [])}}
         await _set(pool, job_id, progress=progress)
         if any("budget" in w for w in progress["discovery"].get("warnings", [])):
@@ -228,7 +228,7 @@ async def _autopilot(pool, discovery, research, ctx, progress, stages: StageSize
 
 CONTACT_RETRY_SQL = """
     SELECT c.id FROM rpi_creators c
-    WHERE c.pipeline_status = 'recommended'
+    WHERE c.pipeline_status = 'recommended' AND c.disqualified_reason IS NULL
       AND NOT EXISTS (SELECT 1 FROM rpi_creator_contacts k WHERE k.creator_id = c.id AND k.contact_type = 'email')
       AND NOT EXISTS (SELECT 1 FROM rpi_provider_requests r WHERE r.creator_id = c.id
                       AND r.operation = 'get_creator_contacts' AND r.status NOT IN ('budget_denied', 'error'))

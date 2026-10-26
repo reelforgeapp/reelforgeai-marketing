@@ -231,6 +231,21 @@ async def research(body: ResearchBody, ctx: RPIContext = Depends(get_ctx), p: Pr
     return {"job_id": job_id, "status": "queued"}
 
 
+class LanguageCheckBody(BaseModel):
+    creator_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@router.post("/research/language-check")
+async def language_check(body: LanguageCheckBody, ctx: RPIContext = Depends(get_ctx),
+                         p: Principal = Depends(require("analyst"))):
+    """Spoken-language check alone (YouTube quota, no CreatorDB credits). Creators whose
+    recent videos are mostly in another language are disqualified; nothing else changes."""
+    out = []
+    for cid in body.creator_ids:
+        out.append(await ctx.research.language_check(cid, CallContext(), p.actor))
+    return clean(out)
+
+
 class FunnelBody(BaseModel):
     screen: Optional[int] = Field(default=None, ge=1, le=2000)
     analyze: Optional[int] = Field(default=None, ge=1, le=500)
