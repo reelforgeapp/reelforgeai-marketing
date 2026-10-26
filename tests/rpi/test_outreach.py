@@ -192,6 +192,12 @@ def test_template_asks_about_exclusivity_for_recent_competitor_deals():
     assert validate_draft(subject, body, build_grounding(ctx, None)).ok
     plain = template_draft(DraftContext(**{**ctx.__dict__, "competitor_deals": ()}))[1]
     assert "exclusivity" not in plain
+    two = template_draft(DraftContext(**{**ctx.__dict__, "competitor_deals": ("InVideo", "Higgsfield")}))[1]
+    assert ("Some of your recent videos were sponsored by InVideo and Higgsfield. Do you have a category exclusivity "
+            "with either of them, and if so, when does it end?") in two
+    assert two.count("exclusivity") == 1
+    three = template_draft(DraftContext(**{**ctx.__dict__, "competitor_deals": ("InVideo", "Higgsfield", "Flova AI")}))[1]
+    assert "sponsored by InVideo, Higgsfield and Flova AI" in three and "with any of them" in three
 
 
 def test_template_skips_income_and_competitor_titles_and_greets_the_channel():

@@ -109,8 +109,14 @@ def template_draft(ctx: DraftContext) -> tuple[str, str]:
     else:
         offer = [f"We'd like to discuss a sponsored integration, and our affiliate program "
                  f"({ctx.commission_rate_pct}% recurring {ctx.commission_duration_text}) can be part of it."]
-    offer += [f"One of your recent videos was sponsored by {brand}. Do you have a category exclusivity with "
-              f"{brand}, and if so, when does it end?" for brand in ctx.competitor_deals]
+    deals = list(ctx.competitor_deals)
+    if len(deals) == 1:
+        offer.append(f"One of your recent videos was sponsored by {deals[0]}. Do you have a category exclusivity with "
+                     f"{deals[0]}, and if so, when does it end?")
+    elif deals:
+        names = ", ".join(deals[:-1]) + " and " + deals[-1]
+        offer.append(f"Some of your recent videos were sponsored by {names}. Do you have a category exclusivity with "
+                     f"{'either' if len(deals) == 2 else 'any'} of them, and if so, when does it end?")
     paragraphs.append(" ".join(offer))
     if ctx.request_audience_data:
         paragraphs.append("If you're open to it, a recent screenshot of your audience geography and age breakdown "

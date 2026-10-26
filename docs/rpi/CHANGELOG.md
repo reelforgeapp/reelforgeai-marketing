@@ -2,6 +2,8 @@
 
 ## 0.2.1 — 2026-10-26
 
+* A creator with recent paid deals from several direct competitors gets one exclusivity question naming all of
+  them, instead of one repeated question per brand.
 * Drafts no longer quote a video title that names another channel or account (`@handle`) or contains hidden
   formatting characters (Unicode Cf, such as text-direction controls). The validator rejects both anywhere in a
   draft, so a draft that has them fails re-validation at send.
