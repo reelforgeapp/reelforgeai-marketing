@@ -112,6 +112,7 @@ CREATORDB_FIELDS: dict[str, FieldSpec] = {
     "language": FieldSpec("mainLanguage", "str", verified=True),  # ISO 639-3
     "subscribers": FieldSpec("totalSubscribers", "int", verified=True),
     "total_videos": FieldSpec("totalContents", "int", verified=True),  # videos + shorts
+    "total_views": FieldSpec("totalViews", "int", verified=True),  # not in the spec; returned live (2026-10-25 probe)
     "last_upload_at": FieldSpec("lastPublishTime", "datetime", verified=True),  # epoch ms
 }
 
@@ -428,6 +429,7 @@ class CreatorDBAdapter(ProviderAdapter):
             median_views=perf.get("median_views"),
             engagement_rate=perf.get("engagement_rate"),
             total_videos=values.get("total_videos"),
+            total_views=values.get("total_views"),
             last_upload_at=values.get("last_upload_at"),
             uploads_last_90d=perf.get("uploads_last_90d"),
             categories=self._categories(record),

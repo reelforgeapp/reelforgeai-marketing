@@ -49,7 +49,7 @@ YouTube prospects as RPI creators (ids, handles and names only; no emails). Run 
 Verify:
 
 ```sql
-SELECT version, applied_at FROM rpi_schema_migrations;          -- 005_rpi_core, 006_..., 007_rpi_autopilot
+SELECT version, applied_at FROM rpi_schema_migrations;          -- 005_rpi_core ... 010_rpi_total_views
 SELECT scope, period, provider, limit_usd FROM rpi_budgets;      -- $200/mo global, $25/day, per-provider
 ```
 

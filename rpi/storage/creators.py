@@ -95,18 +95,34 @@ async def upsert_creator(conn, creator: NormalizedCreator) -> tuple[uuid.UUID, u
     return creator_id, account_id, True
 
 
+_total_views_column = False
+
+
+async def has_total_views(conn) -> bool:
+    """Whether migration 010 (snapshots.total_views) has run; checked until it has."""
+    global _total_views_column
+    if not _total_views_column:
+        _total_views_column = bool(await conn.fetchval(
+            """SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'rpi_creator_profile_snapshots' AND column_name = 'total_views'"""))
+    return _total_views_column
+
+
 async def record_snapshot(conn, creator_id, account_id, creator: NormalizedCreator) -> uuid.UUID:
     prov_id = await insert_provenance(conn, creator.provenance)
-    await conn.execute(
+    snapshot_id = await conn.fetchval(
         """INSERT INTO rpi_creator_profile_snapshots
            (creator_id, social_account_id, provider, subscribers, avg_views, median_views, engagement_rate,
             total_videos, uploads_last_90d, last_upload_at, country, language, categories, description, provenance_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id""",
         creator_id, account_id, creator.provenance.provider, creator.subscribers, creator.avg_views,
         creator.median_views, creator.engagement_rate, creator.total_videos, creator.uploads_last_90d,
         creator.last_upload_at, creator.country, creator.language, creator.categories,
         (creator.description or "")[:2000] or None, prov_id,
     )
+    if creator.total_views is not None and await has_total_views(conn):
+        await conn.execute("UPDATE rpi_creator_profile_snapshots SET total_views = $2 WHERE id = $1",
+                           snapshot_id, creator.total_views)
     return prov_id
 
 

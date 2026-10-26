@@ -114,6 +114,30 @@ def test_uniform_engagement_needs_ten_videos_and_skips_varied_views():
     assert not flagged(videos(UNIFORM[:11], age_days=1))  # the 2 newest are still being delivered, leaving 9
 
 
+def test_fewer_lifetime_views_than_subscribers_is_elevated():
+    # Ari Thinks, 2026-10-26: 763,000 subscribers, 737,764 lifetime views.
+    result = screen([], [], subscribers=763_000, total_views=737_764, now=NOW)
+    assert [(s["signal_type"], s["severity"]) for s in result["signals"]] == [("views_below_subscribers", "elevated")]
+    assert result["level"] == "elevated_review" and "737,764 lifetime views" in result["signals"][0]["detail"]
+    for total_views in (763_000, 8_000_000, None):  # equal, normal (~10x+), or unknown: no signal
+        assert not screen([], [], subscribers=763_000, total_views=total_views, now=NOW)["signals"]
+
+
+def test_engagement_checks_also_judge_the_newest_15_videos():
+    # A channel that bought views only recently: 11 older videos with varied, growing views,
+    # then 15 at the same level. The full history looks normal.
+    older = [(v, int(v * 0.05), 20) for v in (6_900, 8_500, 9_200, 9_300, 10_600, 10_900, 11_200, 11_500, 16_000,
+                                               16_600, 17_200)]
+    switched = videos(UNIFORM + UNIFORM[:3]) + videos(older, age_days=60)
+    result = screen(switched, [], subscribers=None, now=NOW)
+    uniform = [s for s in result["signals"] if s["signal_type"] == "uniform_engagement"]
+    assert len(uniform) == 1 and uniform[0]["detail"].startswith("newest 15 videos: ")
+    # Flagged on the full history: reported once, without the prefix.
+    full = [s for s in screen(videos(UNIFORM * 2), [], subscribers=None, now=NOW)["signals"]
+            if s["signal_type"] == "uniform_engagement"]
+    assert len(full) == 1 and not full[0]["detail"].startswith("newest")
+
+
 def test_size_is_soft_preference():
     assert size_score(50_000, 10_000, 150_000) == 1.0
     assert 0.4 <= size_score(400_000, 10_000, 150_000) < 1.0
@@ -235,3 +259,59 @@ def test_saturation_and_deal_helpers():
              {"brand_name": "CapCut", "overlap": "adjacent", "relationship_type": "confirmed_paid", "published_at": NOW - timedelta(days=3)},
              {"brand_name": "OpusClip", "overlap": "direct", "relationship_type": "ordinary_mention", "published_at": NOW}]
     assert recent_competitor_deals(spons, now=NOW) == [f"InVideo (paid, {(NOW - timedelta(days=8)).date().isoformat()})"]
+
+
+@pytest.mark.db
+async def test_deep_analysis_rejects_bought_subscribers_before_paid_calls(api, pool, monkeypatch):
+    from rpi.providers.fixture_provider import FixtureProvider
+
+    v1, admin = "/rpi/api/v1", api.admin
+    run = await api.post(f"{v1}/discovery/runs", headers=admin, json={
+        "preset": "none", "strategies": ["niche"], "max_candidates": 12, "inline": True,
+        "criteria": {"min_subscribers": 1000, "max_subscribers": 1000000}})
+    assert run.status_code == 200, run.text
+    ids = [c["id"] for c in (await api.get(f"{v1}/creators", headers=admin)).json()]
+    screened = (await api.post(f"{v1}/research", headers=admin, json={"creator_ids": ids, "stage": "screen",
+                                                                       "inline": True})).json()["progress"]["results"]
+    cid = next(c for c, rec in screened.items() if rec in ("recommend", "investigate"))
+
+    original = FixtureProvider.get_creator_profile
+
+    async def bought_subscribers(self, platform_account_id):
+        result = await original(self, platform_account_id)
+        result.data = result.data.model_copy(update={"total_views": result.data.subscribers // 2})
+        return result
+
+    monkeypatch.setattr(FixtureProvider, "get_creator_profile", bought_subscribers)
+    fixture = api.ctx.registry.get("fixture")
+    fixture.calls.clear()
+    deep = await api.post(f"{v1}/research", headers=admin, json={"creator_ids": [cid], "stage": "deep", "inline": True})
+    assert deep.json()["progress"]["results"] == {cid: "reject_suspect_engagement"}
+    assert fixture.calls == ["profile"]  # no sponsorship history, transcripts or contacts were bought
+    profile = (await api.get(f"{v1}/creators/{cid}", headers=admin)).json()
+    assert [s["severity"] for s in profile["risk_signals"] if s["signal_type"] == "views_below_subscribers"] == ["elevated"]
+    assert profile["creator"]["disqualified_reason"] == "suspect_engagement"
+
+
+@pytest.mark.db
+async def test_snapshots_work_before_migration_010_runs(pool):
+    from rpi.core.provenance import MeasurementType, Provenance, utcnow
+    from rpi.providers.base import NormalizedCreator
+    from rpi.storage import creators as store
+
+    creator = NormalizedCreator(platform="youtube", platform_account_id="UCpremigration", subscribers=1000, total_views=50,
+                                provenance=Provenance(provider="creatordb", operation="get_creator_profile",
+                                                      retrieved_at=utcnow(), data_type="creator_profile",
+                                                      measurement=MeasurementType.OBSERVED, retention_policy="creatordb"))
+    async with pool.acquire() as conn:
+        cid = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('Pre-migration') RETURNING id")
+        await conn.execute("ALTER TABLE rpi_creator_profile_snapshots DROP COLUMN total_views")
+        store._total_views_column = False
+        try:
+            await store.record_snapshot(conn, cid, None, creator)  # deploy window: code is new, column not there yet
+            assert not await store.has_total_views(conn)
+        finally:
+            await conn.execute("ALTER TABLE rpi_creator_profile_snapshots ADD COLUMN IF NOT EXISTS total_views BIGINT")
+        await store.record_snapshot(conn, cid, None, creator)
+        assert await conn.fetchval("SELECT COUNT(total_views) FROM rpi_creator_profile_snapshots WHERE creator_id = $1",
+                                   cid) == 1

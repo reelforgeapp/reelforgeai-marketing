@@ -95,6 +95,7 @@ class NormalizedCreator(BaseModel):
     median_views: Optional[float] = None
     engagement_rate: Optional[float] = None
     total_videos: Optional[int] = None
+    total_views: Optional[int] = None  # lifetime channel views
     last_upload_at: Optional[datetime] = None
     uploads_last_90d: Optional[int] = None
     categories: list[str] = Field(default_factory=list)

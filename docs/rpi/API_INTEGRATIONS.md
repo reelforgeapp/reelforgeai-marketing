@@ -11,7 +11,8 @@ Legend: ✅ verified (source given) · ⚠️ unverified · ⛔ blocked/disabled
 Verified 2026-10-25 against CreatorDB's official OpenAPI 3.1 spec (`docs.creatordb.app/api-v3.yaml`) and the
 credit, field-cost and search-filter pages, then **checked live the same day** (`--probe` on one channel: all
 seven endpoints returned the mapped fields, 39 credits, matching the documented costs). Responses also carry
-fields the spec omits (`hasEmail`, `isAgencyRepresented`, `isPodcast`, `joinedDate`, `totalViews`;
+fields the spec omits (`hasEmail`, `isAgencyRepresented`, `isPodcast`, `joinedDate`, `totalViews` (mapped since
+0.2.10 for the views-below-subscribers check; deep analysis fetches the profile for it);
 `videoPrice`/`shortsPrice` media-value estimates; `detectedBrandNamesByVideo`), not used yet.
 
 | Item | Status | Detail |

@@ -40,6 +40,13 @@ FLAT_MAX_SLOPE = 0.3
 UNIFORM_MIN_VIDEOS = 10
 UNIFORM_MAX_LIKE_SPREAD = 2.5
 
+# Both engagement checks also run on the newest RECENT_VIDEOS judged videos, for
+# channels that started buying partway through their history: Ari Thinks
+# (2026-10-26) got 7-17k varied views until mid-August, then 36-48k on every
+# video. Of the 55 scored creators this also flagged APEX_001, NexcopeAI and
+# Trainer1300, each confirmed by hand (fixed view levels, farmed comments).
+RECENT_VIDEOS = 15
+
 
 @dataclass
 class VideoStats:
@@ -69,6 +76,7 @@ def screen(
     snapshots: list[SnapshotStat],
     *,
     subscribers: Optional[int],
+    total_views: Optional[int] = None,
     now: Optional[datetime] = None,
     relevant_share_recent: Optional[float] = None,
     relevant_share_older: Optional[float] = None,
@@ -103,10 +111,22 @@ def screen(
         elif mean < 0.002:
             signals.append(RiskSignal("engagement_unusually_low", "info", round(mean, 4),
                                       f"average like rate {mean:.2%} is low"))
+    recent = sorted(_judged(videos, now), key=lambda v: v.published_at or _NEVER, reverse=True)[:RECENT_VIDEOS]
     for check in (flat_engagement, uniform_engagement):
         signal = check(videos, now)
+        if signal is None and len(recent) < len(_judged(videos, now)):
+            signal = check(recent, now)
+            if signal:
+                signal.detail = f"newest {len(recent)} videos: {signal.detail}"
         if signal:
             signals.append(signal)
+    if total_views is not None and subscribers and total_views < subscribers:
+        # Real channels have tens to hundreds of lifetime views per subscriber (11-634 over the
+        # 55 creators scored by 2026-10-26); Ari Thinks had 737,764 views for 763,000 subscribers.
+        signals.append(RiskSignal("views_below_subscribers", "elevated", round(total_views / subscribers, 2),
+                                  f"{total_views:,} lifetime views for {subscribers:,} subscribers: fewer views than "
+                                  "subscribers, where real channels have tens to hundreds per subscriber; typical of "
+                                  "bought subscribers"))
 
     dated = sorted(v.published_at for v in videos if v.published_at)
     if dated:
@@ -151,6 +171,9 @@ def screen(
         "limitations": "Anomalies have innocent explanations (a viral video, a channel rename, seasonality). "
         "Use flags to decide what to check, not to judge the creator.",
     }
+
+
+_NEVER = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _judged(videos: list[VideoStats], now: datetime) -> list[VideoStats]:
