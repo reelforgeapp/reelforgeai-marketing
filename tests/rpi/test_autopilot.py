@@ -316,3 +316,16 @@ async def test_turning_autopilot_off_stops_its_sends(api, pool, fake_llm):
     sender = FakeSender()
     result = await send_due_drafts(pool, sender, public_base_url="https://rpi.test", window_open=True)
     assert result["sent"] == [str(human)] and len(sender.sent) == 1
+
+
+@pytest.mark.db
+async def test_outside_range_migration_appends_presets_once(pool):
+    from pathlib import Path
+
+    sql = (Path(__file__).resolve().parents[2] / "database" / "migrations" / "008_rpi_outside_range_presets.sql").read_text()
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SELECT presets FROM rpi_autopilot_settings") == [
+            "quality", "quality_broad", "outside_range_small", "outside_range_large"]
+        await conn.execute("UPDATE rpi_autopilot_settings SET presets = ARRAY['quality']")  # an admin's choice
+        await conn.execute(sql)  # migrations re-run on every deploy
+        assert await conn.fetchval("SELECT presets FROM rpi_autopilot_settings") == ["quality"]

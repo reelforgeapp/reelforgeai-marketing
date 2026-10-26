@@ -227,6 +227,39 @@ def test_quality_preset_is_one_credit_of_filters():
     assert adapter().estimate_cost(Capability.SEARCH_CREATORS, criteria=criteria.model_copy(update={"limit": 25})).units == 1
 
 
+def test_outside_range_presets_cover_the_gaps_with_stricter_relevance():
+    from rpi.discovery.presets import CORE_HASHTAGS, EDUCATOR_HASHTAGS
+
+    assert set(CORE_HASHTAGS) < set(EDUCATOR_HASHTAGS) and "#aitools" not in [f"#{t}" for t in CORE_HASHTAGS]
+    bands = {}
+    for name in ("outside_range_small", "outside_range_large"):
+        criteria = apply_preset(CreatorSearchCriteria(), name)
+        body, unapplied, _ = build_search_body(criteria)
+        f = {(x["filterName"], x["op"]): x["value"] for x in body["filters"]}
+        assert len(body["filters"]) == 10 and search_credits(len(body["filters"])) == 1 and not unapplied
+        assert sorted(f[("hashtags", "in")]) == sorted(f"#{t}" for t in CORE_HASHTAGS)
+        assert f[("topics", "in")][0] == "id_ai_ScienceTechnology_youtube"  # hashtags AND topics, like quality
+        bands[name] = (f[("totalSubscribers", ">")] + 1, f[("totalSubscribers", "<")] - 1,
+                       f[("medianRecentVideosViews", ">")] + 1, f[("avgRecentVideosEngagementRate", ">")])
+    assert bands["outside_range_small"][:3] == (3_000, 9_999, 1_000)
+    assert bands["outside_range_large"][:3] == (150_001, 500_000, 10_000)
+    assert bands["outside_range_small"][3] == pytest.approx(0.03995) and bands["outside_range_large"][3] == pytest.approx(0.02995)
+
+
+def test_autopilot_reaches_outside_range_presets_only_after_the_main_ones():
+    from rpi.administration.autopilot import CURSOR_END, current_preset
+    from rpi.discovery.presets import AUTOPILOT_PRESETS
+
+    row = {"presets": list(AUTOPILOT_PRESETS), "discovery_cursor": {}}
+    assert current_preset(row) == ("quality", None)
+    row["discovery_cursor"] = {"quality": CURSOR_END, "quality_broad": "50"}
+    assert current_preset(row) == ("quality_broad", "50")
+    row["discovery_cursor"] = {"quality": CURSOR_END, "quality_broad": CURSOR_END}
+    assert current_preset(row) == ("outside_range_small", None)
+    row["discovery_cursor"].update(outside_range_small=CURSOR_END, outside_range_large=CURSOR_END)
+    assert current_preset(row) == (None, None)
+
+
 def test_preset_yields_to_explicit_fields():
     mine = apply_preset(CreatorSearchCriteria(keywords=["capcut"], max_subscribers=500_000, audience_countries=[]), "quality")
     assert mine.niches == [] and mine.topics == [] and mine.keywords == ["capcut"]  # caller chose relevance
