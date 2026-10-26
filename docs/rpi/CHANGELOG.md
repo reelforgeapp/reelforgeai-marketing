@@ -1,5 +1,15 @@
 # RPI changelog
 
+## 0.2.4 — 2026-10-26
+
+* **Product attribution.** reelforge-backend now reports signups, the `?ref=` referral code, the Stripe customer and
+  first render/export to RPI (`backend/services/rpi-attribution.js`).
+* **Campaign tracking.** The creator page can start a campaign with the creator's Reditus `?ref=` code. Creating a
+  campaign attributes earlier signups that used the code (`attribute_existing_signups`), but never takes a paid
+  customer from another partner. Referral codes are matched case-insensitively and may be 2–60 characters.
+* The partnership-bot conversation notice no longer repeats the email address.
+* Plan docs refreshed: milestone status, decisions taken, next steps.
+
 ## 0.2.3 — 2026-10-26
 
 * **Partnership bot conversations** (migration `009_rpi_external_conversations`, `rpi.crm.external_conversations`).

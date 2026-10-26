@@ -20,7 +20,8 @@ from rpi.core.audit import audit
 from rpi.crm import external_conversations as external
 from rpi.crm import suppression
 from rpi.crm.pipeline import Status, TransitionError, transition
-from rpi.financial_ledger.ledger import add_entry
+from rpi.attribution.touches import attribute_existing_signups
+from rpi.financial_ledger.ledger import accrue_commissions, add_entry
 from rpi.outreach import service as outreach_service
 from rpi.outreach.service import OutreachRefused
 from rpi.outreach.sender import send_draft, test_send
@@ -233,7 +234,9 @@ class CampaignBody(BaseModel):
     creator_id: str
     deal_id: Optional[str] = None
     name: str
-    referral_code: Optional[str] = Field(default=None, pattern="^[A-Za-z0-9_-]{3,40}$")
+    # The creator's Reditus referral code (the ?ref= value in their affiliate link),
+    # so signups through their link are attributed to this campaign.
+    referral_code: Optional[str] = Field(default=None, pattern="^[A-Za-z0-9_-]{2,60}$")
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = "influencer"
     utm_campaign: Optional[str] = None
@@ -248,6 +251,9 @@ async def create_campaign(body: CampaignBody, ctx: RPIContext = Depends(get_ctx)
     code = body.referral_code or ("rf" + secrets.token_hex(4))
     window = body.attribution_window_days or ctx.program.attribution_window_days
     async with ctx.pool.acquire() as conn:
+        # Codes are matched case-insensitively (Reditus links are not case-sensitive).
+        if await conn.fetchval("SELECT 1 FROM rpi_campaigns WHERE lower(referral_code) = lower($1)", code):
+            raise HTTPException(409, "referral code or utm_campaign already in use")
         try:
             cid = await conn.fetchval(
                 """INSERT INTO rpi_campaigns (creator_id, deal_id, name, referral_code, utm_source, utm_medium, utm_campaign,
@@ -257,8 +263,12 @@ async def create_campaign(body: CampaignBody, ctx: RPIContext = Depends(get_ctx)
                 body.utm_campaign or code, body.landing_page, body.start_date, body.end_date, window)
         except asyncpg.UniqueViolationError:
             raise HTTPException(409, "referral code or utm_campaign already in use")
-        await audit(conn, p.actor, "campaign.created", "campaign", cid, {"referral_code": code})
-    return {"id": str(cid), "referral_code": code, "utm_campaign": body.utm_campaign or code, "attribution_window_days": window}
+        async with conn.transaction():
+            earlier = await attribute_existing_signups(conn, cid, code)
+        await accrue_commissions(conn)
+        await audit(conn, p.actor, "campaign.created", "campaign", cid, {"referral_code": code, "earlier_signups": earlier})
+    return {"id": str(cid), "referral_code": code, "utm_campaign": body.utm_campaign or code, "attribution_window_days": window,
+            "earlier_signups_attributed": earlier}
 
 
 @router.get("/campaigns")

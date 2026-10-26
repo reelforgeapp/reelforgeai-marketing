@@ -1,6 +1,6 @@
 # RPI — Audit, Gap Analysis and Implementation Plan
 
-Status date: 2026-10-25. This document covers deliverables **A** (existing architecture assessment),
+Status date: 2026-10-26 (first written 2026-10-25). This document covers deliverables **A** (existing architecture assessment),
 **C** (gap analysis) and **D** (dependency-ordered plan) from the directive. The API verification
 matrix (**B**) is in [API_INTEGRATIONS.md](API_INTEGRATIONS.md) and the production architecture (**E**)
 in [ARCHITECTURE.md](ARCHITECTURE.md). What was built is in [CHANGELOG.md](CHANGELOG.md).
@@ -44,12 +44,12 @@ No implementation named "Partner Scout" exists outside this repository; this rep
 |---|---|---|---|---|
 | 1 | `/trigger/*`, `/keywords` (incl. DELETE) and `/tasks/{id}` had **no authentication**; anyone could trigger outreach runs or delete keywords | `app/main.py` | High | **Fixed**: `X-Admin-Key` required, fails closed when `ADMIN_API_KEY` is unset |
 | 2 | Brevo webhook accepted **unauthenticated** requests when `BREVO_WEBHOOK_SECRET` was unset, and its HMAC check could never pass because Brevo does not sign payloads | `app/main.py:validate_brevo_webhook` | High | **Fixed**: accepts the secret as bearer token, basic-auth password or `X-Brevo-Webhook-Token`; fails closed outside development |
-| 3 | Partner Scout **sends autonomously** (auto-enroll + sequence processing) with no human approval | `tasks/outreach_tasks.py` | Medium | Decide whether to keep; RPI never sends without approval |
+| 3 | Partner Scout **sends autonomously** (auto-enroll + sequence processing) with no human approval | `tasks/outreach_tasks.py` | Medium | **Paused** 2026-10-25 (`PARTNER_SCOUT_AUTO_OUTREACH_ENABLED=false`; README has the steps to resume). RPI sends instead, through its send rules and the autopilot an admin enabled |
 | 4 | Templates contain **unverified income claims** ("creators … $500–$2,000/month", "one partner hit $1,500") and **fabricated familiarity** ("I just watched your video on …"); no postal address | `database/schema.sql` seed templates, `services/ai_personalization.py` | High (FTC / CAN-SPAM) | **Fixed** (PR #2): copy rewritten, AI copy checked, footer with postal address + signed unsubscribe; sending refused until `COMPANY_POSTAL_ADDRESS` is set |
 | 5 | Email extraction **scrapes YouTube pages** with Playwright | `discovery/hybrid_email_extractor.py` | High (YouTube ToS) | **Fixed** (PR #2): YouTube pages are never fetched; only creators' own websites |
 | 6 | YouTube API data kept up to 180 days | `tasks/maintenance_tasks.py` purge | Medium (Dev Policies III.E.4: 30 days) | **Fixed** (PR #2): daily scrub clears YouTube statistics after 30 days |
 | 7 | `ANTHROPIC_MODEL` default `claude-3-5-haiku-20241022` is very likely retired, so personalization may silently fall back to templates | `app/config.py` | Low | **Fixed** (PR #2): default is now `claude-haiku-5-5` |
-| 8 | Affiliate terms disagree: `/affiliate-terms` = 30% for customer lifetime, 60-day last click; `/affiliates` = 30% for 12 months, 90-day cookie | reelforge-ai frontend | Medium (contractual) | **Duration decided**: 12 months (2026-10-25), RPI default. `/affiliate-terms` still says lifetime and must be corrected; cookie window (60 vs 90 days) undecided |
+| 8 | Affiliate terms disagree: `/affiliate-terms` = 30% for customer lifetime, 60-day last click; `/affiliates` = 30% for 12 months, 90-day cookie | reelforge-ai frontend | Medium (contractual) | **Fixed** 2026-10-25 (reelforge-backend #273): 30% recurring for 12 months on every page, terms v1.1 effective 2026-11-24 with grandfathering. Cookie window (60 vs 90 days) still undecided; RPI uses 60 |
 | 9 | Product deploy runs `prisma db push --accept-data-loss` | reelforge-ai `Dockerfile:61` | High for any shared DB | RPI must never use the product database (it does not) |
 | 10 | Product has no analytics/affiliate consent mechanism (PostHog + Reditus load for everyone) | reelforge-ai `layout.jsx` (audit report) | Medium | Add consent; RPI's PostHog bridge stays silent until it exists |
 
@@ -61,7 +61,7 @@ sub-agent audit and are not re-verified.
 | Directive module | Status | Notes |
 |---|---|---|
 | providers (contract, resilience, metering) | **Built** | Normalized contract, explicit UNSUPPORTED, retries with jitter, Retry-After, circuit breaker, token bucket, timeouts, schema validation, cost metering, cache, request log |
-| CreatorDB adapter | **Built to the official spec, live check pending** | All used endpoints, fields and credit costs match CreatorDB's OpenAPI spec; `scripts/rpi_verify_creatordb.py` confirms them with the key |
+| CreatorDB adapter | **Built and live** | Verified with the key (usage, profile and full endpoint probe), used in production since 2026-10-25; quality presets push every filter into the search (1 credit per page) |
 | SparkToro adapter | **Built, live-unverified** | Endpoints/credits verified from docs; response field names unverified |
 | YouTube Data adapter | **Built** (verification only) | Never feeds scores |
 | YouTube Analytics OAuth | **Built, disabled** | Pending legal review of Dev Policies III.E.3(b); report retrieval not implemented |
@@ -77,14 +77,16 @@ sub-agent audit and are not re-verified.
 | qualification scoring | **Built** | Deterministic, versioned, policy-gated |
 | profit modeling + deal optimizer | **Built** | Scenarios, break-even, payback, max fee, sensitivity, labeled simulation, ledger actuals |
 | CRM | **Built** | 16 statuses, transitions, notes, follow-ups, suppression, audit |
-| outreach | **Built** | Drafts + validator + approval + gated sending; sending **off** by default |
+| outreach | **Built and live** | Drafts + validator + approval + gated sending; scheduled sends; sending enabled in production 2026-10-25 (1/day) |
+| autopilot | **Built and live** | Daily research → template draft → self-approval → scheduling inside a weekly CreatorDB credit allowance (300/week); no follow-ups, replies stay with a person |
+| reply handling | **Via the partnership bot** | reelforge-backend `scripts/partnership-bot` answers the inbox and reports its conversations to RPI, which blocks cold email to them and marks replies |
 | attribution | **Built** | Touch/identify/milestone ingest, first/last touch, lock at first paid, consent-aware |
 | financial ledger | **Built** | Stripe ingestion, tax/discount/refund/chargeback, commission accrual, FX provenance, reports, reconciliation |
 | analytics / dashboard | **Built** | Executive, cost per stage |
 | compliance | **Built** | Policy registry, retention enforcement, deletion, untrusted-content handling |
 | administration | **Built** | Roles, keys, budgets with two-person increases, jobs, audit |
 | UI (9 screens) | **Built** | Vanilla JS SPA served by FastAPI |
-| Product-side integration (calls to `/attribution/*`) | **Not started — other repo** | See ATTRIBUTION_SPECIFICATION.md |
+| Product-side integration (calls to `/attribution/*`) | **Built** (reelforge-backend, 2026-10-26) | Identify at every signup path and on Stripe customer link, first render/export milestones, `?ref=` code carried through checkout. Stripe → RPI webhook endpoint is registered by the owner in the Stripe dashboard (DEPLOYMENT_RUNBOOK §7). Landing-page touches are not sent; the signup referral code is the touch |
 | Commercial SaaS features | **Deferred by design** | `workspace_id` columns keep the door open |
 
 ## D. Implementation plan and milestone status
@@ -92,23 +94,25 @@ sub-agent audit and are not re-verified.
 | Milestone | Scope | Status | Definition of done → evidence |
 |---|---|---|---|
 | 0 Audit | Architecture, reuse, API matrix, risks | **Done** (API matrix partly unverified) | This document + API_INTEGRATIONS.md |
-| 1 Core discovery | Schema, CreatorDB adapter, metering, search, identity, dedupe, prelim filter, dashboard | **Code done; live use blocked** | Works end to end on the fixture provider (tests). Real search needs the CreatorDB key and a live check |
-| 2 AI research & qualification | Claude classification, evidence, audience suitability, confidence, sponsorships, transcript fallback | **Code done; live Claude unverified** | Fake-model tests pass; needs `ANTHROPIC_API_KEY` and a labeled benchmark |
-| 3 Audience intelligence | SparkToro, audience-first, provenance, provider value comparison | **Code done; live unverified** | `strategy_breakdown.audience_first.not_found_by_other_strategies` per run |
-| 4 Commercial engine | Pricing scenarios, contribution model, break-even, deals, CRM, drafts, approvals | **Done** | Tests + Profitability Lab |
-| 5 Attribution & revenue | Referral attribution, PostHog, billing webhook, ledger, cost allocation, cohorts, dashboards | **RPI side done; product integration pending** | Signed-webhook E2E test; product must call `/attribution/identify` |
-| 6 Controlled rollout | ≥100 real partners discovered, pilots, reconciled outcomes | **Not started** (needs keys + business decisions) | — |
+| 1 Core discovery | Schema, CreatorDB adapter, metering, search, identity, dedupe, prelim filter, dashboard | **Done, live** | Real CreatorDB searches in production since 2026-10-25 |
+| 2 AI research & qualification | Claude classification, evidence, audience suitability, confidence, sponsorships, transcript fallback | **Done, live** | Claude screening in production; accuracy unmeasured until the benchmark is labeled |
+| 3 Audience intelligence | SparkToro, audience-first, provenance, provider value comparison | **Code done; not live** | Needs a SparkToro key |
+| 4 Commercial engine | Pricing scenarios, contribution model, break-even, deals, CRM, drafts, approvals | **Done, live** | Outreach sending since 2026-10-25; autopilot since 2026-10-26 |
+| 5 Attribution & revenue | Referral attribution, PostHog, billing webhook, ledger, cost allocation, cohorts, dashboards | **Built on both sides; Stripe endpoint pending** | Product reports signups and milestones; payments arrive once the RPI Stripe endpoint is registered. PostHog bridge stays silent until the product has consent |
+| 6 Controlled rollout | ≥100 real partners discovered, pilots, reconciled outcomes | **In progress** | 2026-10-26: 25 discovered by RPI, 15 screened, 8 recommended, 1 email sent, 4 scheduled; no deals or campaigns yet |
 | 7 Optimization | Lookalike, calibration, cohorts, more adapters | **Not started** | Needs ≥ a handful of completed campaigns |
 
 ### Next steps (dependency order)
 
-1. **Decisions** (owner: ReelForge): affiliate commission duration; whether Partner Scout keeps autonomous sending;
-   fixes for risks 1, 2, 4 and 5.
-2. **Provision**: CreatorDB key → run `scripts/rpi_verify_creatordb.py` → fix any mapping drift. Review the
-   CreatorDB customer agreement → set `RPI_CREATORDB_SCORING_PERMITTED`.
-3. **Deploy** migration 005 (DEPLOYMENT_RUNBOOK.md), create principals, set budgets.
+Done since the first version of this plan: decisions on commission duration (12 months) and Partner Scout
+(paused); CreatorDB provisioned, verified and scoring permitted; migrations 005–009 deployed; sending enabled;
+autopilot running; partnership-bot integration; product attribution integration.
+
+1. **Stripe endpoint** (owner): register `https://reelforgeai-marketing.onrender.com/rpi/api/v1/webhooks/stripe`
+   and put its signing secret in `RPI_STRIPE_WEBHOOK_SECRET` (DEPLOYMENT_RUNBOOK §7).
+2. **Campaigns**: when a creator agrees, start tracking on their creator page with their Reditus `?ref=` code.
+3. **Housekeeping** (owner input): CreatorDB plan price (`CREATORDB_USD_PER_CREDIT`), a second admin principal,
+   production database access restricted to Render and named IPs, a restore test.
 4. **Label** 50–100 benchmark channels (`docs/rpi/benchmark_template.csv`) → `scripts/rpi_benchmark.py --report`.
-5. **Product integration** (reelforge-ai): call `/attribution/identify` at signup and `/attribution/milestone`
-   at first render/export; register the RPI Stripe webhook endpoint; optionally send per-render costs.
-6. **Pilot**: discover ≥100, screen, deep-qualify, approve outreach, enable sending with a small daily limit.
-7. Milestone 7 once outcomes exist.
+5. **Pilot** to ≥100 discovered partners and a few campaigns with reconciled outcomes (Milestone 6).
+6. SparkToro (Milestone 3) if audience-first research should be measured; Milestone 7 once outcomes exist.

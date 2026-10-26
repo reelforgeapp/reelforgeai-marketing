@@ -2,19 +2,21 @@
 
 ## External blockers (need access or a decision)
 
-1. **CreatorDB search relevance unproven.** Endpoints, fields and credits match the official spec and a live
-   probe. Keywords are matched as hashtags, which may miss creators who don't tag. Search results are sparse
-   (id, handle, name, subscribers), so language, country and activity are unknown until a profile or content
-   call. Competitor-sponsorship discovery needs `/sponsor/creators`, which is not called yet.
-2. **CreatorDB publishes no API terms.** Scoring from CreatorDB data stays off until
-   `RPI_CREATORDB_SCORING_PERMITTED`, which should follow a review of your CreatorDB customer agreement.
+1. **CreatorDB search relevance unmeasured.** Live since 2026-10-25. Keywords are matched as hashtags, which may
+   miss creators who don't tag, and niches are noisy (presets use hashtags AND topics). Competitor-sponsorship
+   discovery needs `/sponsor/creators`, which is not called yet.
+2. **CreatorDB publishes no API terms.** ReelForge confirmed its agreement permits internal scoring;
+   `RPI_CREATORDB_SCORING_PERMITTED=true` in production.
 3. **SparkToro and Supadata terms unread; response shapes unverified.**
 4. **Claude prices unverified.** Spend reports use the configured per-token prices.
 5. **YouTube Analytics display restriction** (Dev Policies III.E.3(b)) needs legal review; the integration is off.
    Analytics report retrieval is not implemented.
-6. **Affiliate terms page out of date**: commission is 30% for 12 months (confirmed 2026-10-25, RPI default), but the
-   product's `/affiliate-terms` page still says customer lifetime. Cookie window undecided (60 vs 90 days); RPI uses 60.
-7. **Product integration** (identify, milestones, Stripe endpoint, cost feed) must be built in reelforge-ai.
+6. **Affiliate cookie window undecided** (60 vs 90 days); RPI uses 60. The commission terms pages were corrected to
+   30% for 12 months on 2026-10-25.
+7. **Stripe → RPI endpoint not registered yet.** The product reports signups and milestones (reelforge-backend,
+   2026-10-26), but payments only reach RPI once the owner adds RPI's Stripe endpoint and secret. Signups before
+   the product integration went live are not in RPI. Landing-page touches are not sent (the signup `?ref=` code
+   is the touch), and no per-render cost feed exists.
 8. **No labeled benchmark.** No accuracy claim is possible until 50–100 channels are manually labeled.
 9. **The documentation fetch outage** during the build left items in API_INTEGRATIONS.md marked unverified.
 

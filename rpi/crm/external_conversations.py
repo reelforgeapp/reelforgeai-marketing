@@ -58,12 +58,14 @@ class ExternalConversation:
 
     def summary(self) -> str:
         who = self.name or self.email
+        if self.email not in who:
+            who = f"{who} ({self.email})"
         parts = []
         if self.last_inbound_at:
             parts.append(f"they last wrote on {self.last_inbound_at.date().isoformat()}")
         if self.last_outbound_at:
             parts.append(f"the bot last wrote on {self.last_outbound_at.date().isoformat()}")
-        return f"The partnership bot is in conversation with {who} ({self.email}): " + ", ".join(parts or ["no dates reported"])
+        return f"The partnership bot is in conversation with {who}: " + ", ".join(parts or ["no dates reported"])
 
     def as_dict(self) -> dict:
         return {"source": self.source, "email": self.email, "name": self.name, "last_inbound_at": self.last_inbound_at,
