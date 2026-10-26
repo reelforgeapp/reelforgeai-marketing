@@ -24,6 +24,8 @@
 
 * Lookalike discovery (strategy D) is not implemented; it needs outcome data from completed campaigns.
 * Comment-level buyer-intent analysis is not implemented. Buyer intent is classified from creator content.
+* Bought engagement is detected only when likes stay flat while views vary (`flat_engagement`). Likes bought in
+  proportion to views, bought views alone, and generated comment text are not detected; comments are not read.
 * Email verification (Bouncer/Clearout/Hunter, already in this repo) is not yet wired into RPI contacts;
   contacts show `unverified` unless a hard bounce marks them undeliverable.
 * Replies are detected through the partnership bot, which reads the inbox once a day (14:00 UTC). A creator is

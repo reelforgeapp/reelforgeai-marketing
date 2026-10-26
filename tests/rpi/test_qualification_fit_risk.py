@@ -43,6 +43,45 @@ def test_risk_screen_is_labeled_and_flags_anomalies():
     assert "fraud" not in str(result["signals"]).lower()
 
 
+# @BeerMoneyForum, 2026-10-26: ~2,500 likes and ~290 comments on every video whatever its views.
+BOUGHT = [(33_823, 2_471, 292), (63_480, 2_428, 292), (49_238, 2_549, 287), (112_593, 2_511, 302),
+          (59_198, 2_517, 301), (59_018, 2_491, 282), (160_857, 2_575, 297)]
+
+
+def videos(rows, *, age_days=10, short=None):
+    return [VideoStats(NOW - timedelta(days=age_days + i), v, l, c, short) for i, (v, l, c) in enumerate(rows)]
+
+
+def test_flat_engagement_is_elevated():
+    result = screen(videos(BOUGHT), [], subscribers=504_000, now=NOW)
+    flat = next(s for s in result["signals"] if s["signal_type"] == "flat_engagement")
+    assert flat["severity"] == "elevated" and flat["value"] < 0.1
+    assert "2,428-2,575" in flat["detail"] and "7 videos" in flat["detail"]
+    assert result["level"] == "elevated_review"  # one elevated signal is enough
+    # The checks that existed before all miss it.
+    assert [s["signal_type"] for s in result["signals"]] == ["flat_engagement"]
+
+
+def test_engagement_that_scales_with_views_is_not_flagged():
+    # Like rates wobble between 2% and 5% but likes still follow views.
+    rows = [(v, int(v * r), int(v * r / 10)) for v, r in
+            [(4_000, 0.05), (9_000, 0.02), (15_000, 0.04), (30_000, 0.03), (52_000, 0.02), (80_000, 0.045)]]
+    assert not [s for s in screen(videos(rows), [], subscribers=60_000, now=NOW)["signals"]
+                if s["signal_type"] == "flat_engagement"]
+
+
+def test_flat_engagement_needs_enough_evidence():
+    def flagged(vids):
+        return any(s["signal_type"] == "flat_engagement" for s in screen(vids, [], subscribers=None, now=NOW)["signals"])
+
+    assert flagged(videos(BOUGHT))
+    assert not flagged(videos(BOUGHT[:5]))  # fewer than 6 videos
+    assert not flagged(videos(BOUGHT, age_days=1))  # still collecting likes
+    assert not flagged(videos(BOUGHT, short=True))  # Shorts are judged separately from long-form
+    # Views too similar for the slope to mean anything (p90/p10 below 2).
+    assert not flagged(videos([(50_000 + i * 2_000, 2_500, 290) for i in range(8)]))
+
+
 def test_size_is_soft_preference():
     assert size_score(50_000, 10_000, 150_000) == 1.0
     assert 0.4 <= size_score(400_000, 10_000, 150_000) < 1.0
@@ -83,6 +122,46 @@ def test_niche_mismatch_rejected_only_when_confident():
 def test_elevated_risk_blocks_recommend():
     r = score(base_input(risk_level="elevated_review"), now=NOW)
     assert r.recommendation != "recommend"
+
+
+def test_flat_engagement_rejects_an_otherwise_strong_creator():
+    detail = "likes stay at 2,428-2,575 per video while views vary 3.3x across 7 videos"
+    r = score(base_input(risk_level="elevated_review", risk_blockers=[detail]), now=NOW)
+    assert r.recommendation == "reject_suspect_engagement"
+    assert f"risk screening: {detail}" in r.reasons
+    assert r.overall is not None  # still scored, so the creator page shows why
+
+
+@pytest.mark.db
+async def test_screening_disqualifies_flat_engagement(api, monkeypatch):
+    from rpi.providers.fixture_provider import FixtureProvider
+
+    original = FixtureProvider.get_creator_content
+
+    async def bought_engagement(self, platform_account_id, limit=30):
+        result = await original(self, platform_account_id, limit)
+        result.data = [c.model_copy(update={"views": 20_000 * (i + 1), "likes": 2_500, "comments": 290, "is_short": False})
+                       for i, c in enumerate(result.data)]
+        return result
+
+    monkeypatch.setattr(FixtureProvider, "get_creator_content", bought_engagement)
+    v1, admin = "/rpi/api/v1", api.admin
+    run = await api.post(f"{v1}/discovery/runs", headers=admin, json={
+        "preset": "none", "strategies": ["niche"], "max_candidates": 10, "inline": True,
+        "criteria": {"min_subscribers": 1000, "max_subscribers": 1000000}})
+    assert run.status_code == 200, run.text
+    ids = [c["id"] for c in (await api.get(f"{v1}/creators", headers=admin)).json()]
+    screen_job = await api.post(f"{v1}/research", headers=admin, json={"creator_ids": ids, "stage": "screen", "inline": True})
+    assert screen_job.status_code == 200, screen_job.text
+    results = screen_job.json()["progress"]["results"]
+    flagged = [cid for cid, rec in results.items() if rec == "reject_suspect_engagement"]
+    assert flagged and "recommend" not in results.values() and "investigate" not in results.values()
+
+    profile = (await api.get(f"{v1}/creators/{flagged[0]}", headers=admin)).json()
+    assert profile["creator"]["disqualified_reason"] == "suspect_engagement"
+    assert profile["creator"]["pipeline_status"] == "discovered"  # never moved on to deep analysis
+    assert profile["qualification"]["risk_level"] == "elevated_review"
+    assert [s["severity"] for s in profile["risk_signals"] if s["signal_type"] == "flat_engagement"] == ["elevated"]
 
 
 def test_recent_competitor_deal_is_a_flag_not_a_penalty():
