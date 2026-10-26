@@ -27,8 +27,21 @@ options. Do **not** set `RPI_ENABLE_FIXTURE_PROVIDER` in production: RPI request
 
 ## 3. Migrate
 
+Since 2026-10-26 the production database accepts no connections from outside Render (empty IP allow list), so
+migrations run inside Render as a one-off job on the worker, using the deployed code:
+
 ```bash
-DATABASE_URL=<marketing db url> python -m scripts.rpi_migrate
+curl -X POST -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" \
+  -d '{"startCommand": "python -m scripts.rpi_migrate"}' \
+  https://api.render.com/v1/services/srv-d5hu9d2li9vc73an3dq0/jobs
+```
+
+The job runs the code that is live, so deploy first and run the job right after. New code must tolerate a
+migration that has not run yet; the existing code does this with `to_regclass` checks. For a local or fresh
+database:
+
+```bash
+DATABASE_URL=<db url> python -m scripts.rpi_migrate
 ```
 
 Idempotent: it creates `rpi_*` tables, seeds the competitor registry and budgets, and imports Partner Scout
@@ -124,5 +137,17 @@ The product side needs `RPI_BASE_URL` and `RPI_INGEST_KEY` (an RPI `ingest` prin
 
 ## Backups and recovery testing
 
-Render PostgreSQL daily backups cover RPI. Quarterly: restore the latest backup to a scratch database, run
-`python -m scripts.rpi_benchmark --report` and `GET /reports/reconciliation` against it, and record the result.
+`reelforge-marketing-db` (Render `basic_256mb`) has point-in-time recovery for the last 7 days
+(`GET /v1/postgres/{id}/recovery`). Test a restore quarterly:
+
+1. `POST /v1/postgres/dpg-d5hb4e6r433s73blgjd0-a/recovery` with `{"restoreTime": "<a few minutes ago>",
+   "restoreName": "rpi-restore-test-<date>"}`. Render creates a new database; it inherits production's IP allow
+   list, so set it to your IP only while comparing.
+2. Compare every table with production as of the restore time. Count rows with
+   `created_at`/`occurred_at`/`received_at` at or before it, or all rows where there is no timestamp. Also compare
+   `rpi_schema_migrations`.
+3. Close the copy (`ipAllowList: []`) and delete it in the Render dashboard.
+
+| Date | Restore point | Result |
+|---|---|---|
+| 2026-10-26 | 02:17:38 UTC | 60/60 tables match (18,825 rows), migrations equal through 009; copy `rpi-restore-test-20261026` (`dpg-dbfbnhss728c73eqv240-a`) closed, deletion left to the owner |

@@ -84,7 +84,7 @@ sub-agent audit and are not re-verified.
 | financial ledger | **Built** | Stripe ingestion, tax/discount/refund/chargeback, commission accrual, FX provenance, reports, reconciliation |
 | analytics / dashboard | **Built** | Executive, cost per stage |
 | compliance | **Built** | Policy registry, retention enforcement, deletion, untrusted-content handling |
-| administration | **Built** | Roles, keys, budgets with two-person increases, jobs, audit |
+| administration | **Built** | Roles, keys, budgets (admin increases apply immediately, audited), jobs, audit |
 | UI (9 screens) | **Built** | Vanilla JS SPA served by FastAPI |
 | Product-side integration (calls to `/attribution/*`) | **Built** (reelforge-backend, 2026-10-26) | Identify at every signup path and on Stripe customer link, first render/export milestones, `?ref=` code carried through checkout. Stripe → RPI webhook endpoint is registered by the owner in the Stripe dashboard (DEPLOYMENT_RUNBOOK §7). Landing-page touches are not sent; the signup referral code is the touch |
 | Commercial SaaS features | **Deferred by design** | `workspace_id` columns keep the door open |
@@ -111,8 +111,8 @@ autopilot running; partnership-bot integration; product attribution integration.
 1. **Stripe endpoint** (owner): register `https://reelforgeai-marketing.onrender.com/rpi/api/v1/webhooks/stripe`
    and put its signing secret in `RPI_STRIPE_WEBHOOK_SECRET` (DEPLOYMENT_RUNBOOK §7).
 2. **Campaigns**: when a creator agrees, start tracking on their creator page with their Reditus `?ref=` code.
-3. **Housekeeping** (owner input): CreatorDB plan price (`CREATORDB_USD_PER_CREDIT`), a second admin principal,
-   production database access restricted to Render and named IPs, a restore test.
+3. **Housekeeping**: done 2026-10-26, except the CreatorDB cost per credit, which needs the plan's monthly credits.
+   Database access is restricted to Render, budgets use single-admin control, and a point-in-time restore was tested.
 4. **Label** 50–100 benchmark channels (`docs/rpi/benchmark_template.csv`) → `scripts/rpi_benchmark.py --report`.
 5. **Pilot** to ≥100 discovered partners and a few campaigns with reconciled outcomes (Milestone 6).
 6. SparkToro (Milestone 3) if audience-first research should be measured; Milestone 7 once outcomes exist.

@@ -536,3 +536,16 @@ async def test_schedule_endpoint_requires_approval_and_timezone(api, pool):
     assert (await api.post(url, json={"send_at": None}, headers=api.admin)).status_code == 200
     async with pool.acquire() as conn:
         assert await conn.fetchval("SELECT scheduled_send_at FROM rpi_outreach_drafts WHERE id = $1", approved) is None
+
+
+@pytest.mark.db
+async def test_delivery_events_api_lists_one_emails_events_in_order(api, pool):
+    did, cid = await seed_draft(pool, status="sent", pipeline="contacted")
+    async with pool.acquire() as conn:
+        for kind, minutes in (("delivered", 2), ("sent", 1), ("opened", 30)):
+            await conn.execute(
+                "INSERT INTO rpi_outreach_events (draft_id, creator_id, event_type, occurred_at) VALUES ($1, $2, $3, NOW() + make_interval(mins => $4))",
+                did, cid, kind, minutes)
+    events = (await api.get(f"/rpi/api/v1/outreach/drafts/{did}/events", headers=api.admin)).json()
+    assert [e["event_type"] for e in events] == ["sent", "delivered", "opened"]
+    assert (await api.get(f"/rpi/api/v1/outreach/drafts/{did}/events")).status_code == 401

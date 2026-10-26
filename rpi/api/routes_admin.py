@@ -89,11 +89,14 @@ async def request_change(budget_id: str, body: BudgetChange, ctx: RPIContext = D
         current = await conn.fetchval("SELECT limit_usd FROM rpi_budgets WHERE id = $1 AND active", budget_id)
         if current is None:
             raise HTTPException(404, "budget not found")
-        if body.requested_limit_usd <= current:
-            # Decreases take effect immediately; they only reduce risk.
+        if body.requested_limit_usd <= current or p.has("admin"):
+            # Decreases take effect immediately (they only reduce risk), and so do an
+            # admin's increases: ReelForge chose single-admin control on 2026-10-26.
+            # Every change is audited with its reason.
+            increase = body.requested_limit_usd > current
             await conn.execute("UPDATE rpi_budgets SET limit_usd = $2, updated_at = NOW() WHERE id = $1", budget_id,
                                body.requested_limit_usd)
-            await audit(conn, p.actor, "budget.decreased", "budget", budget_id,
+            await audit(conn, p.actor, "budget.increased" if increase else "budget.decreased", "budget", budget_id,
                         {"from": str(current), "to": str(body.requested_limit_usd), "reason": body.reason})
             return {"applied": True}
         rid = await conn.fetchval(
@@ -116,8 +119,6 @@ async def decide_change(request_id: str, body: BudgetDecision, ctx: RPIContext =
             req = await conn.fetchrow("SELECT * FROM rpi_budget_change_requests WHERE id = $1 FOR UPDATE", request_id)
             if not req or req["status"] != "pending":
                 raise HTTPException(409, "request not pending")
-            if req["requested_by"] == p.actor:
-                raise HTTPException(403, "a budget increase must be approved by someone other than the requester")
             await conn.execute(
                 "UPDATE rpi_budget_change_requests SET status = $2, decided_by = $3, decided_at = NOW() WHERE id = $1",
                 request_id, "approved" if body.approve else "rejected", p.actor)
@@ -127,6 +128,15 @@ async def decide_change(request_id: str, body: BudgetDecision, ctx: RPIContext =
             await audit(conn, p.actor, "budget.increase_" + ("approved" if body.approve else "rejected"), "budget",
                         req["budget_id"], {"request_id": request_id, "to": str(req["requested_limit_usd"])})
     return {"request_id": request_id, "approved": body.approve}
+
+
+@router.get("/outreach/drafts/{draft_id}/events")
+async def draft_events(draft_id: str, ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("viewer"))):
+    """Delivery events of one email (sent, delivered, bounces, opens, replied...), oldest first."""
+    async with ctx.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT event_type, occurred_at FROM rpi_outreach_events WHERE draft_id = $1 ORDER BY occurred_at", draft_id)
+    return clean([dict(r) for r in rows])
 
 
 @router.get("/admin/spend")

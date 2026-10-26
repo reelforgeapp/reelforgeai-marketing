@@ -48,18 +48,23 @@ async def test_analyst_cannot_approve_or_send(api):
                            json={"status": "outreach_approved"})).status_code == 403
 
 
-async def test_budget_increase_requires_second_person(api):
+async def test_budget_increases_need_an_admin_and_are_audited(api):
     budgets = (await api.get(f"{V1}/admin/budgets", headers=api.admin)).json()["budgets"]
     monthly = next(b for b in budgets if b["scope"] == "global" and b["period"] == "monthly")
-    req = await api.post(f"{V1}/admin/budgets/{monthly['id']}/change-requests", headers=api.admin,
+    analyst = await key_for(api, "analyst")
+    req = await api.post(f"{V1}/admin/budgets/{monthly['id']}/change-requests", headers=analyst,
                          json={"requested_limit_usd": "5000", "reason": "big research push"})
-    assert req.json()["status"] == "pending_approval"
-    self_approve = await api.post(f"{V1}/admin/budget-requests/{req.json()['request_id']}", headers=api.admin,
-                                  json={"approve": True})
-    assert self_approve.status_code == 403
-    other_admin = await key_for(api, "admin")
-    ok = await api.post(f"{V1}/admin/budget-requests/{req.json()['request_id']}", headers=other_admin, json={"approve": True})
+    assert req.json()["status"] == "pending_approval"  # an analyst can only ask
+    assert (await api.post(f"{V1}/admin/budget-requests/{req.json()['request_id']}", headers=analyst,
+                           json={"approve": True})).status_code == 403
+    ok = await api.post(f"{V1}/admin/budget-requests/{req.json()['request_id']}", headers=api.admin, json={"approve": True})
     assert ok.status_code == 200
+    direct = await api.post(f"{V1}/admin/budgets/{monthly['id']}/change-requests", headers=api.admin,
+                            json={"requested_limit_usd": "6000", "reason": "admin raises it directly"})
+    assert direct.json() == {"applied": True}  # single-admin control (owner decision, 2026-10-26)
+    async with api.ctx.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT limit_usd FROM rpi_budgets WHERE id = $1", monthly["id"]) == 6000
+        assert await conn.fetchval("SELECT COUNT(*) FROM rpi_audit_log WHERE action = 'budget.increased'") == 1
 
 
 async def test_over_budget_enrichment_is_refused(api):

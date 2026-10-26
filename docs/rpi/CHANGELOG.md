@@ -1,5 +1,16 @@
 # RPI changelog
 
+## 0.2.5 — 2026-10-26
+
+* **Security housekeeping.**
+  * The production database's IP allow list is now empty (Render services only). Migrations run as Render jobs
+    (DEPLOYMENT_RUNBOOK §3).
+  * `GET /outreach/drafts/{id}/events` returns one email's delivery events, so delivery checks no longer read the
+    database directly.
+  * Budget increases by an admin apply immediately and are audited. An analyst's increase still needs an admin.
+    Single-admin control replaces two-person approval, at the owner's request.
+  * A point-in-time restore was tested and compared with production.
+
 ## 0.2.4 — 2026-10-26
 
 * **Product attribution.** reelforge-backend now reports signups, the `?ref=` referral code, the Stripe customer and
