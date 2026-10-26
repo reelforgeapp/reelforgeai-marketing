@@ -45,7 +45,7 @@ curiosity without purchase intent, negative/unsuitable fit. Today these are clas
 caveat. Comment analysis is not implemented because of YouTube API data restrictions. Predictive usefulness must
 be validated against campaign outcomes before it influences ranking.
 
-## Qualification score (`qual-2026-10-25.1`)
+## Qualification score (`qual-2026-10-26.1`)
 
 | Component | Weight | Source |
 |---|---|---|
@@ -68,8 +68,11 @@ be validated against campaign outcomes before it influences ranking.
   "check exclusivity before outreach: <brand> (paid, <date>)", shown on the creator page, because sponsorship
   contracts often carry a 30–90 day category exclusivity.
 * Confidence = completeness × (0.5 + 0.5 × classification confidence) × (0.6 + 0.4 × ICP completeness).
-* Recommendation: `recommend` (overall ≥ 0.7, niche ≥ 0.6, risk not elevated) · `investigate` (≥ 0.5) · `hold` ·
-  `reject_niche_mismatch` (niche < 0.25 with classification confidence ≥ 0.6) · `needs_data`.
+* Recommendation: `reject_suspect_engagement` (any `elevated` risk signal, checked first) · `recommend` (overall ≥
+  0.7, niche ≥ 0.6, risk not elevated) · `investigate` (≥ 0.5) · `hold` · `reject_niche_mismatch` (niche < 0.25
+  with classification confidence ≥ 0.6) · `needs_data`. Both rejections set `rpi_creators.disqualified_reason`
+  (`suspect_engagement`, `niche_mismatch`), so the funnel and the autopilot skip the creator; a person can still
+  draft for them.
 
 ## Audience fit
 
@@ -83,6 +86,15 @@ Missing data is never imputed; `completeness` shows how much of the profile was 
 Signals: view concentration (best/median ≥ 20×), low views per subscriber (< 0.5%), engagement inconsistency or
 extremes, inactivity (> 60 days), irregular posting, subscriber growth spikes or drops between snapshots, niche
 drift. Output is labeled "risk screening result (not a forensic determination)".
+
+**Flat engagement** (`flat_engagement`, severity `elevated`): likes that stay the same whatever a video's views,
+the pattern of a fixed package of likes and comments bought per video. Over the stored long-form videos at least
+3 days old (≥ 6 of them, and only when the 90th-percentile video has ≥ 2× the views of the 10th), it fits
+log(likes) against log(views); a slope below 0.3 flags. On real channels likes keep pace with views: the 15
+creators scored in production on 2026-10-26 had slopes of 0.59–1.19. @BeerMoneyForum had about 2,500 likes and
+290 comments on every video between 33k and 160k views (slope 0.02), and none of the other signals caught it.
+Any `elevated` signal makes the risk level `elevated_review` and rejects the creator. It uses the per-video
+stats screening already buys, so it costs no credits.
 
 ## Evaluation benchmark
 

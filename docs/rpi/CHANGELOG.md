@@ -1,5 +1,14 @@
 # RPI changelog
 
+## 0.2.6 — 2026-10-26
+
+* **Flat-engagement check (scoring qual-2026-10-26.1).** The risk screen flags creators whose likes stay the same
+  whatever a video's views (`flat_engagement`, severity `elevated`), the pattern of engagement bought per video.
+  Found on @BeerMoneyForum (a Partner Scout prospect): about 2,500 likes on every video from 33k to 160k views.
+  A flagged creator is rejected as `reject_suspect_engagement` (`disqualified_reason = suspect_engagement`)
+  before deep analysis, so the funnel and the autopilot spend nothing more on them. Re-checked against the 15
+  creators already scored in production: none flagged. No extra credits.
+
 ## 0.2.5 — 2026-10-26
 
 * **Security housekeeping.**

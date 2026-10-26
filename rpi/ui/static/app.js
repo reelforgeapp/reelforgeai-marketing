@@ -178,7 +178,7 @@ const views = {
       ...["discovered", "preliminary_qualified", "deep_analysis", "recommended", "contact_identified", "outreach_approved", "contacted",
         "negotiating", "active_partnership", "rejected", "do_not_contact"].map(s => h("option", { value: s }, s)));
     const rec = h("select", {}, h("option", { value: "" }, "any recommendation"),
-      ...["recommend", "investigate", "hold", "reject_niche_mismatch", "needs_data"].map(s => h("option", { value: s }, s)));
+      ...["recommend", "investigate", "hold", "reject_niche_mismatch", "reject_suspect_engagement", "needs_data"].map(s => h("option", { value: s }, s)));
     const q = h("input", { placeholder: "name or handle" });
     const list = h("div");
     const load = async () => {

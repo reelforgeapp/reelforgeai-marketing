@@ -2,19 +2,34 @@
 Audience quality and risk screening.
 
 Outputs are RISK-SCREENING RESULTS, not forensic determinations. A flag means
-"look at this before paying", never "this creator bought followers". Only data
-whose provider policy permits derived analysis is used; the caller filters
-inputs through rpi.compliance.policies.scoring_allowed.
+"look at this before paying", never "this creator bought followers". An
+`elevated` signal (flat engagement) is strong enough that qualification rejects
+the creator, so the funnel and the autopilot skip them; a person can still
+review and draft for them. Only data whose provider policy permits derived
+analysis is used; the caller filters inputs through
+rpi.compliance.policies.scoring_allowed.
 """
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 SCREENING_LABEL = "risk screening result (not a forensic determination)"
+
+# Flat engagement: likes that stay the same whatever a video's views. On real
+# channels likes rise with views (log-log slope 0.59-1.19 over the 15 creators
+# scored in production on 2026-10-26); @BeerMoneyForum's videos all had ~2,500
+# likes at 33k-160k views (slope 0.02), the pattern of a fixed package of
+# engagement bought per video. Videos younger than FLAT_MIN_AGE are still
+# collecting likes (or a package is still being delivered) and are left out.
+FLAT_MIN_VIDEOS = 6
+FLAT_MIN_AGE = timedelta(days=3)
+FLAT_MIN_VIEW_SPREAD = 2.0  # 90th / 10th percentile views; below it the slope means little
+FLAT_MAX_SLOPE = 0.3
 
 
 @dataclass
@@ -23,6 +38,7 @@ class VideoStats:
     views: Optional[int]
     likes: Optional[int]
     comments: Optional[int]
+    is_short: Optional[bool] = None
 
 
 @dataclass
@@ -78,6 +94,9 @@ def screen(
         elif mean < 0.002:
             signals.append(RiskSignal("engagement_unusually_low", "info", round(mean, 4),
                                       f"average like rate {mean:.2%} is low"))
+    flat = flat_engagement(videos, now)
+    if flat:
+        signals.append(flat)
 
     dated = sorted(v.published_at for v in videos if v.published_at)
     if dated:
@@ -111,7 +130,9 @@ def screen(
                                       "recent videos are much less ReelForge-relevant than older ones"))
 
     review_count = sum(1 for s in signals if s.severity == "review")
-    level = "elevated_review" if review_count >= 3 else "review_recommended" if review_count else "no_flags"
+    elevated = any(s.severity == "elevated" for s in signals)
+    level = ("elevated_review" if elevated or review_count >= 3 else "review_recommended" if review_count
+             else "no_flags")
     return {
         "label": SCREENING_LABEL,
         "level": level,
@@ -120,3 +141,28 @@ def screen(
         "limitations": "Anomalies have innocent explanations (a viral video, a channel rename, seasonality). "
         "Use flags to decide what to check, not to judge the creator.",
     }
+
+
+def flat_engagement(videos: list[VideoStats], now: datetime) -> Optional[RiskSignal]:
+    """An `elevated` signal when likes do not rise with views across recent
+    long-form videos: the slope of log(likes) on log(views) is below
+    FLAT_MAX_SLOPE although views vary at least FLAT_MIN_VIEW_SPREAD-fold."""
+    vids = [v for v in videos if v.is_short is not True and v.views and v.likes
+            and (v.published_at is None or now - v.published_at >= FLAT_MIN_AGE)]
+    if len(vids) < FLAT_MIN_VIDEOS:
+        return None
+    views = sorted(v.views for v in vids)
+    spread = views[int(0.9 * (len(views) - 1))] / views[int(0.1 * (len(views) - 1))]
+    if spread < FLAT_MIN_VIEW_SPREAD:
+        return None
+    x = [math.log(v.views) for v in vids]
+    y = [math.log(v.likes) for v in vids]
+    mx, my = statistics.mean(x), statistics.mean(y)
+    slope = sum((a - mx) * (b - my) for a, b in zip(x, y)) / sum((a - mx) ** 2 for a in x)
+    if slope >= FLAT_MAX_SLOPE:
+        return None
+    likes = [v.likes for v in vids]
+    return RiskSignal("flat_engagement", "elevated", round(slope, 3),
+                      f"likes stay at {min(likes):,}-{max(likes):,} per video while views vary {spread:.1f}x across "
+                      f"{len(vids)} videos: 10x the views brings {10 ** slope:.2f}x the likes, where real channels "
+                      "get about 4-15x; typical of engagement bought per video")

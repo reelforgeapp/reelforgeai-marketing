@@ -44,6 +44,10 @@ CONTENT_PREFERENCE = ("creatordb", "fixture")
 TRANSCRIPT_PREFERENCE = ("creatordb", "supadata", "fixture")
 
 
+# Recommendations that disqualify a creator (rpi_creators.disqualified_reason),
+# which keeps them out of the screening queue.
+DISQUALIFYING = {"reject_niche_mismatch": "niche_mismatch", "reject_suspect_engagement": "suspect_engagement"}
+
 # Paid results that only matter through the qualification score.
 SCORING_INPUTS = {Capability.CREATOR_CONTENT, Capability.AUDIENCE_DEMOGRAPHICS, Capability.SPONSORSHIP_HISTORY,
                   Capability.TRANSCRIPT}
@@ -329,7 +333,7 @@ class ResearchService:
 
         allowed_content = [r for r in content if self.allowed(r["provider"])]
         risk = risk_screen(
-            [VideoStats(r["published_at"], r["views"], r["likes"], r["comments"]) for r in allowed_content],
+            [VideoStats(r["published_at"], r["views"], r["likes"], r["comments"], r["is_short"]) for r in allowed_content],
             [SnapshotStat(s["observed_at"], s["subscribers"]) for s in snapshots if self.allowed(s["provider"])],
             subscribers=snap["subscribers"] if snap and self.allowed(snap["provider"]) else None,
         )
@@ -381,6 +385,7 @@ class ResearchService:
             sponsored_view_ratio=saturation["view_ratio"],
             expected_fee_usd=fee_note,
             risk_level=risk["level"],
+            risk_blockers=[s["detail"] for s in risk["signals"] if s["severity"] == "elevated"],
             scoring_allowed={p: self.allowed(p) for p in {content_provider, snap["provider"] if snap else None} if p},
             preferred_min_subs=self.config.preferred_min_subs,
             preferred_max_subs=self.config.preferred_max_subs,
@@ -401,8 +406,9 @@ class ResearchService:
             json.dumps(analysis.evidence if analysis else []), json.dumps(result.missing_data),
             json.dumps(result.excluded_sources),
         )
-        if result.recommendation == "reject_niche_mismatch":
-            await conn.execute("UPDATE rpi_creators SET disqualified_reason = 'niche_mismatch' WHERE id = $1", creator_id)
+        if result.recommendation in DISQUALIFYING:
+            await conn.execute("UPDATE rpi_creators SET disqualified_reason = $2 WHERE id = $1", creator_id,
+                               DISQUALIFYING[result.recommendation])
         return {
             "overall": result.overall, "confidence": result.confidence, "recommendation": result.recommendation,
             "missing_data": result.missing_data, "excluded_sources": result.excluded_sources, "reasons": result.reasons,

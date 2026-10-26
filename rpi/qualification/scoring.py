@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-SCORING_VERSION = "qual-2026-10-25.2"
+SCORING_VERSION = "qual-2026-10-26.1"
 SATURATION_MIN_VIDEOS = 5
 
 WEIGHTS = {
@@ -53,6 +53,8 @@ class QualificationInput:
     expected_fee_usd: Optional[float]
     risk_level: str  # no_flags | review_recommended | elevated_review
     scoring_allowed: dict[str, bool] = field(default_factory=dict)
+    # Details of `elevated` risk signals (flat engagement); any one rejects the creator.
+    risk_blockers: list[str] = field(default_factory=list)
     # Paid direct-competitor deals in the last 90 days, e.g. "InVideo (paid, 2026-10-17)".
     # Flagged for an exclusivity check; they do not lower the score.
     recent_competitor_deals: list[str] = field(default_factory=list)
@@ -186,7 +188,10 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
     confidence = round(completeness * (0.5 + 0.5 * inp.classification_confidence) * (0.6 + 0.4 * inp.icp_completeness), 3)
 
     niche = components["niche_relevance"]["value"]
-    if niche is None:
+    if inp.risk_blockers:
+        recommendation = "reject_suspect_engagement"
+        reasons.extend(f"risk screening: {b}" for b in inp.risk_blockers)
+    elif niche is None:
         recommendation = "needs_data"
         reasons.append("niche relevance unavailable")
     elif niche < 0.25 and inp.classification_confidence >= 0.6:
