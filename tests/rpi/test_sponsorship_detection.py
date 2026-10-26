@@ -60,5 +60,6 @@ def test_provider_brands_link_to_the_competitor_registry():
 
     assert match_competitor("InVideo", None, DEFAULT_COMPETITORS).name == "InVideo"
     assert match_competitor("invideo ai", "invideo.io", DEFAULT_COMPETITORS).name == "InVideo"  # by domain
-    assert match_competitor("Higgsfield", "higgsfield.ai", DEFAULT_COMPETITORS) is None
+    assert match_competitor("Fish Audio", "fish.audio", DEFAULT_COMPETITORS) is None
+    assert match_competitor("TopviewAI", None, DEFAULT_COMPETITORS).name == "Topview"  # by alias
     assert "creatordb_detected_sponsorship" in PROVIDER_PAID_LABELS

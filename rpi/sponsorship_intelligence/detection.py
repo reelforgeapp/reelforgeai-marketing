@@ -253,4 +253,12 @@ DEFAULT_COMPETITORS: list[Competitor] = [
     Competitor("ElevenLabs", ("elevenlabs.io",), ("Eleven Labs",), "ai_voice", "complementary"),
     Competitor("CapCut", ("capcut.com",), (), "short_form_editor", "adjacent"),
     Competitor("Runway", ("runwayml.com",), ("Runway ML",), "ai_video_generator", "adjacent"),
+    # Added 2026-10-26: AI video tools that paid creators found by the first autopilot run.
+    Competitor("Higgsfield", ("higgsfield.ai",), ("Higgsfield AI",), "ai_video_generator", "direct"),
+    Competitor("Topview", ("topview.ai",), ("TopviewAI", "Topview AI", "TopView AI"), "ai_video_generator", "direct"),
+    Competitor("Flova", ("flova.ai",), ("Flova AI",), "ai_video_generator", "direct"),
+    Competitor("DeeVid", ("deevid.ai",), ("DeeVid AI",), "ai_video_generator", "adjacent"),
+    Competitor("Kling", ("klingai.com",), ("Kling AI", "KlingAI"), "ai_video_generator", "adjacent"),
+    Competitor("Vidu", ("vidu.com",), ("Vidu AI",), "ai_video_generator", "adjacent"),
+    Competitor("OpenArt", ("openart.ai",), ("OpenArt AI",), "ai_video_generator", "adjacent"),
 ]

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import uuid
 import sys
 from pathlib import Path
 
@@ -32,7 +33,12 @@ DOWN = [MIGRATIONS / "007_rpi_autopilot_down.sql", MIGRATIONS / "006_rpi_schedul
         MIGRATIONS / "005_rpi_core_down.sql"]
 
 
-async def seed(conn) -> dict:
+async def seed_competitors(conn) -> dict:
+    """Add registry competitors that are missing, then link stored sponsorships
+    of those brands that were recorded before the brand was in the registry."""
+    from rpi.enrichment.service import match_competitor
+    from rpi.sponsorship_intelligence.detection import Competitor
+
     n = 0
     for c in DEFAULT_COMPETITORS:
         res = await conn.execute(
@@ -40,6 +46,21 @@ async def seed(conn) -> dict:
                ON CONFLICT (name) DO NOTHING""",
             c.name, list(c.domains), list(c.aliases), c.category, c.overlap)
         n += res.endswith("1")
+    registry = [Competitor(r["name"], tuple(r["domains"]), tuple(r["aliases"]), r["category"], r["overlap"], str(r["id"]))
+                for r in await conn.fetch("SELECT id, name, domains, aliases, category, overlap FROM rpi_competitors WHERE active")]
+    linked = 0
+    for row in await conn.fetch(
+            "SELECT id, brand_name, brand_domain FROM rpi_sponsorship_relationships WHERE competitor_id IS NULL"):
+        match = match_competitor(row["brand_name"], row["brand_domain"], registry)
+        if match:
+            await conn.execute("UPDATE rpi_sponsorship_relationships SET competitor_id = $2 WHERE id = $1",
+                               row["id"], uuid.UUID(match.id))
+            linked += 1
+    return {"competitors_added": n, "sponsorships_linked": linked}
+
+
+async def seed(conn) -> dict:
+    competitors = await seed_competitors(conn)
     imported = 0
     if await conn.fetchval("SELECT to_regclass('public.marketing_prospects') IS NOT NULL"):
         rows = await conn.fetch(
@@ -61,7 +82,7 @@ async def seed(conn) -> dict:
                     "INSERT INTO rpi_pipeline_events (creator_id, to_status, actor, reason) VALUES ($1, 'discovered', 'migration', 'imported from Partner Scout')",
                     cid)
             imported += 1
-    return {"competitors_added": n, "partner_scout_imported": imported}
+    return {**competitors, "partner_scout_imported": imported}
 
 
 async def main() -> None:
