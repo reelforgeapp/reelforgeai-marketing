@@ -58,6 +58,7 @@ async def test_profile_request_shape_and_normalization():
     assert c.categories[:2] == ["Science & Technology", "Education"]  # by share
     assert "youtubeautomation" in c.categories and "aivideo" in c.categories
     assert c.last_upload_at.year == 2026 and c.total_videos == 212
+    assert c.total_views == 5_400_000  # returned live though the spec omits it
     assert c.avg_views is None  # comes from /youtube/performance, never inferred
     assert c.provenance.provider == "creatordb" and c.provenance.response_version == "v3"
     # Provider-reported creditsUsed is what gets settled.

@@ -1,5 +1,15 @@
 # RPI changelog
 
+## 0.2.10 — 2026-10-26
+
+* **Views-below-subscribers check** (migration `010_rpi_total_views`). Deep analysis now starts with the CreatorDB
+  profile (2 credits) and stores the channel's lifetime views. A channel with fewer lifetime views than subscribers
+  is rejected as `reject_suspect_engagement` before demographics, sponsorship history and transcripts are bought.
+  Found on Ari Thinks (763,000 subscribers, 737,764 lifetime views); every scored creator has 11 or more views per
+  subscriber. The code works before the migration runs.
+* **Engagement checks judge the newest 15 videos too**, catching channels that switched to bought views recently.
+  On the 55 scored creators this adds APEX_001, NexcopeAI and Trainer1300 (all checked by hand).
+
 ## 0.2.9 — 2026-10-26
 
 * **Uniform-engagement check.** The risk screen flags creators whose videos all land on about the same views and

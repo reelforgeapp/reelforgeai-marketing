@@ -3,9 +3,10 @@ Per-creator research pipeline (funnel stages 2-5).
 
   screen()  stage 2: spoken-language gate → recent content → sponsorship
             evidence → niche classification → risk screen → audience fit → score
-  deep()    stages 3-4: spoken-language gate → demographics, provider
-            sponsorship history, selective transcripts, re-classification,
-            contacts → re-score
+  deep()    stages 3-4: spoken-language gate → channel totals (CreatorDB
+            profile, 2 credits) → demographics, provider sponsorship history,
+            selective transcripts (skipped when the channel has fewer lifetime
+            views than subscribers) → re-classification, contacts → re-score
 
 The spoken-language gate (rpi.qualification.language_gate) is free and runs
 before any CreatorDB call; it is cached, so repeating it costs nothing.
@@ -41,7 +42,7 @@ from rpi.providers.registry import ProviderRegistry
 from rpi.qualification import language_gate
 from rpi.qualification.scoring import QualificationInput, Sourced, score as qualification_score
 from rpi.sponsorship_intelligence.detection import Competitor, detect_sponsorships
-from rpi.storage.creators import record_audience, record_contacts, record_content
+from rpi.storage.creators import has_total_views, record_audience, record_contacts, record_content, record_snapshot
 
 logger = structlog.get_logger()
 
@@ -55,7 +56,7 @@ DISQUALIFYING = {"reject_niche_mismatch": "niche_mismatch", "reject_suspect_enga
 
 # Paid results that only matter through the qualification score.
 SCORING_INPUTS = {Capability.CREATOR_CONTENT, Capability.AUDIENCE_DEMOGRAPHICS, Capability.SPONSORSHIP_HISTORY,
-                  Capability.TRANSCRIPT}
+                  Capability.TRANSCRIPT, Capability.CREATOR_PROFILE}
 
 
 @dataclass
@@ -170,9 +171,14 @@ class ResearchService:
             if st.pipeline_status == Status.PRELIMINARY_QUALIFIED.value:
                 await transition(conn, creator_id, Status.DEEP_ANALYSIS, actor=actor, reason="stage 3 analysis")
             account = await self._account(conn, creator_id)
+            # Paid deep-analysis data cannot change the outcome for a channel with bought subscribers.
+            bought = await self._channel_totals(conn, creator_id, account, ctx, notes)
+            if bought:
+                notes.append("skipped demographics, sponsorship history and transcripts: fewer lifetime views than "
+                             "subscribers")
 
             aud = None
-            if self.config.fetch_audience_demographics:
+            if self.config.fetch_audience_demographics and not bought:
                 aud, note = await self._paid(conn, creator_id, Capability.AUDIENCE_DEMOGRAPHICS, CONTENT_PREFERENCE, account,
                                              ctx=ctx)
                 if note:
@@ -183,13 +189,14 @@ class ResearchService:
                 async with conn.transaction():
                     await record_audience(conn, creator_id, aud.data)
 
-            spons, note = await self._paid(conn, creator_id, Capability.SPONSORSHIP_HISTORY, CONTENT_PREFERENCE, account, ctx=ctx)
-            if note:
-                notes.append(note)
-            if spons and spons.data:
-                await self._store_provider_sponsorships(conn, creator_id, spons.data)
-
-            await self._fetch_transcripts(conn, creator_id, ctx, notes)
+            if not bought:
+                spons, note = await self._paid(conn, creator_id, Capability.SPONSORSHIP_HISTORY, CONTENT_PREFERENCE,
+                                               account, ctx=ctx)
+                if note:
+                    notes.append(note)
+                if spons and spons.data:
+                    await self._store_provider_sponsorships(conn, creator_id, spons.data)
+                await self._fetch_transcripts(conn, creator_id, ctx, notes)
             analysis = await self._classify(conn, creator_id, ctx, allow_deep=True, notes=notes)
             qual = await self._qualify(conn, creator_id, analysis, stage=3, notes=notes)
 
@@ -234,6 +241,30 @@ class ResearchService:
         await language_gate.disqualify(conn, creator_id, verdict, actor)
         return {"creator_id": str(creator_id), "stage": stage, "notes": [verdict.detail],
                 "qualification": {"recommendation": language_gate.RECOMMENDATION, "reasons": [verdict.detail]}}
+
+    async def _channel_totals(self, conn, creator_id, account: Optional[str], ctx: CallContext, notes: list[str]) -> bool:
+        """Lifetime views from the CreatorDB profile (2 credits; skipped while a
+        fetch is fresh). True when the channel has fewer views than subscribers."""
+        result, note = await self._paid(conn, creator_id, Capability.CREATOR_PROFILE, CONTENT_PREFERENCE, account, ctx=ctx)
+        if note:
+            notes.append(note)
+        if result and result.data:
+            account_row = await conn.fetchval(
+                """SELECT id FROM rpi_creator_social_accounts
+                   WHERE creator_id = $1 AND platform = 'youtube' AND platform_account_id = $2""", creator_id, account)
+            async with conn.transaction():
+                await record_snapshot(conn, creator_id, account_row, result.data)
+        totals = await self._totals(conn, creator_id)
+        return bool(totals and totals["subscribers"] and totals["total_views"] < totals["subscribers"])
+
+    async def _totals(self, conn, creator_id) -> Optional[dict]:
+        """Latest policy-permitted snapshot carrying lifetime views (migration 010), or None."""
+        if not await has_total_views(conn):
+            return None
+        rows = await conn.fetch(
+            """SELECT total_views, subscribers, provider FROM rpi_creator_profile_snapshots
+               WHERE creator_id = $1 AND total_views IS NOT NULL ORDER BY observed_at DESC""", creator_id)
+        return next((dict(r) for r in rows if self.allowed(r["provider"])), None)
 
     # ------------------------------------------------------------------
     async def _content_rows(self, conn, creator_id) -> list[dict]:
@@ -367,10 +398,12 @@ class ResearchService:
         best = max((f for f in fits if f.fit is not None), key=lambda f: f.fit, default=None)
 
         allowed_content = [r for r in content if self.allowed(r["provider"])]
+        totals = await self._totals(conn, creator_id)
         risk = risk_screen(
             [VideoStats(r["published_at"], r["views"], r["likes"], r["comments"], r["is_short"]) for r in allowed_content],
             [SnapshotStat(s["observed_at"], s["subscribers"]) for s in snapshots if self.allowed(s["provider"])],
             subscribers=snap["subscribers"] if snap and self.allowed(snap["provider"]) else None,
+            total_views=totals["total_views"] if totals else None,
         )
         async with conn.transaction():
             await conn.execute("DELETE FROM rpi_audience_quality_signals WHERE creator_id = $1", creator_id)

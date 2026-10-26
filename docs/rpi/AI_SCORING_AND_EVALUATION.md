@@ -118,6 +118,17 @@ within 1.8×, likes within 1.3×; on YouTube, views that stopped growing after a
 2026-10-26 no other had views under 2× and likes under 3×. Like flat engagement it rejects the creator
 (`reject_suspect_engagement`).
 
+**Recent switch.** Both engagement checks also run on the newest 15 judged videos, for channels that started buying
+partway through their history (Ari Thinks: 7–17K varied views until mid-August 2026, then 36–48K on every video).
+A signal found this way says "newest 15 videos:". Of the 55 scored creators it added APEX_001, NexcopeAI and
+Trainer1300, each confirmed by hand (fixed view levels, farmed or numbered comments).
+
+**Views below subscribers** (`views_below_subscribers`, severity `elevated`): fewer lifetime channel views than
+subscribers, the mark of bought subscribers. Deep analysis first fetches the CreatorDB profile (2 credits, reused
+for 7 days) for `totalViews`; when views are below subscribers it skips demographics, sponsorship history and
+transcripts and rejects the creator. Real channels have tens to hundreds of lifetime views per subscriber (11–634
+across the 55 scored creators, median 67); Ari Thinks had 0.97.
+
 ## Evaluation benchmark
 
 * Labels: `rpi_benchmark_labels`, imported from a manually reviewed CSV (`docs/rpi/benchmark_template.csv`) with
