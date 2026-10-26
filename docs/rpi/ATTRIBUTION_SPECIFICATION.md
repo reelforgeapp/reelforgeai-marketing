@@ -48,7 +48,24 @@ POST /rpi/api/v1/attribution/milestone
 {"customer_ref": "<uuid>", "milestone": "first_render|first_export", "at": "..."}
 ```
 
-## Product changes required (reelforge-ai, not done in this repository)
+## Reditus code ↔ campaign
+
+Affiliate links are `reelforgeai.io/?ref=CODE` (Reditus). The product stores `CODE` as `users.referred_by_code` at
+every signup path, including accounts created at checkout, and sends it with `identify`. A campaign's
+`referral_code` is the creator's Reditus code, matched case-insensitively. Start tracking from the creator page
+(*Campaign tracking*) or `POST /campaigns`. Creating the campaign also attributes signups that used the code
+earlier: unlocked customers are re-attributed, and customers who already paid without any campaign get this one.
+A paid customer is never moved from another partner.
+
+## Product integration (reelforge-backend `backend/services/rpi-attribution.js`, live 2026-10-26)
+
+Implemented: `identify` after email, Google and checkout signups and whenever a Stripe customer is linked;
+`milestone first_render` where `first_value_reached` fires; `milestone first_export` on the first download or
+publish; the `?ref=` code carried through public checkout. Server-to-server, fire-and-forget, user id only (no
+email or name). Not implemented: landing-page `touch` calls (rule 3 makes the signup code the touch) and the
+per-render cost feed.
+
+## Product changes originally specified
 
 1. On landing with `ref`/UTM: server-side `touch` call (or proxy from the frontend through the backend; never
    expose the ingest key to browsers).

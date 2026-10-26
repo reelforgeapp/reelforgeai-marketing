@@ -67,8 +67,9 @@ contact found, so about 131 credits at the defaults (25 / 10 / 5).
    record replies; check the inbox before following up.
 8. **Negotiate**: CRM transitions + `negotiation` notes; create the deal; mark it `agreed` only with a contract
    reference when required.
-9. **Launch**: create the campaign (referral code + UTM), record the influencer fee as a campaign cost with the
-   invoice reference, move the creator to `active_partnership`.
+9. **Launch**: on the creator page, *Campaign tracking* → enter their Reditus `?ref=` code (signups through their
+   link, including earlier ones, are attributed to the campaign); record the influencer fee as a campaign cost
+   with the invoice reference, move the creator to `active_partnership`.
 10. **Measure**: Campaigns → partner profitability (switch first/last touch) and cohorts.
 
 ## Credit-efficient discovery (CreatorDB)

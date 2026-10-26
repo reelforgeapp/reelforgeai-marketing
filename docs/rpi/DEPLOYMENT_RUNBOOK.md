@@ -74,10 +74,20 @@ mapping before running discovery. Review your CreatorDB customer agreement, then
 
 ## 7. Stripe
 
-Add a webhook endpoint `https://<host>/rpi/api/v1/webhooks/stripe` (events in ATTRIBUTION_SPECIFICATION.md) and
-set `RPI_STRIPE_WEBHOOK_SECRET`. Set `RPI_STRIPE_PRICE_PLAN_MAP` (JSON price id → plan name, e.g.
+In the Stripe dashboard (live mode) → Developers → Webhooks → *Add endpoint*:
+
+* URL `https://reelforgeai-marketing.onrender.com/rpi/api/v1/webhooks/stripe`
+* Events: `invoice.paid`, `invoice.payment_succeeded`, `charge.refunded`, `charge.dispute.created`,
+  `charge.dispute.closed`, `customer.subscription.created`, `customer.subscription.updated`,
+  `customer.subscription.deleted`
+
+This is a second endpoint next to the product's own; nothing in the product changes. Copy the endpoint's signing
+secret into `RPI_STRIPE_WEBHOOK_SECRET` on the **reelforgeai-marketing** web service. Set
+`RPI_STRIPE_PRICE_PLAN_MAP` (JSON price id → plan name, from the product's `STRIPE_*_PRICE_ID` variables, e.g.
 `{"price_123": "creator"}`). Send a test event from the Stripe dashboard and check
 `GET /rpi/api/v1/reports/reconciliation`.
+
+The product side needs `RPI_BASE_URL` and `RPI_INGEST_KEY` (an RPI `ingest` principal) on **reelforge-api**.
 
 ## 8. Outreach (only when ready)
 

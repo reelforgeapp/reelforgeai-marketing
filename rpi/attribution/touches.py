@@ -170,6 +170,30 @@ async def identify(conn, payload: dict) -> dict:
     }
 
 
+async def attribute_existing_signups(conn, campaign_id, referral_code: str) -> int:
+    """Customers who signed up with this referral code before its campaign
+    existed (a creator's Reditus code used before RPI tracked them). Unlocked
+    customers are re-attributed like a fresh identify; customers already locked
+    without any campaign get this one, because the code was known at signup and
+    no other partner is displaced. Returns how many customers now point here."""
+    rows = await conn.fetch(
+        """SELECT customer_ref, signed_up_at FROM rpi_customers
+           WHERE lower(signup_referral_code) = lower($1) AND signed_up_at IS NOT NULL""", referral_code)
+    n = 0
+    for r in rows:
+        await identify(conn, {"customer_ref": r["customer_ref"], "signed_up_at": r["signed_up_at"],
+                              "signup_referral_code": referral_code})
+        await conn.execute(
+            """UPDATE rpi_customers SET first_touch_campaign_id = $2, last_touch_campaign_id = $2,
+                   first_touch_at = signed_up_at, last_touch_at = signed_up_at, updated_at = NOW()
+               WHERE customer_ref = $1 AND first_touch_campaign_id IS NULL AND last_touch_campaign_id IS NULL""",
+            r["customer_ref"], _uuid(campaign_id))
+        n += bool(await conn.fetchval(
+            "SELECT 1 FROM rpi_customers WHERE customer_ref = $1 AND last_touch_campaign_id = $2",
+            r["customer_ref"], _uuid(campaign_id)))
+    return n
+
+
 async def record_milestone(conn, customer_ref: str, milestone: str, at: datetime) -> bool:
     column = {"first_render": "first_render_at", "first_export": "first_export_at"}.get(milestone)
     if column is None:

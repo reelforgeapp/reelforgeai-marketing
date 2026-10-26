@@ -210,8 +210,14 @@ const views = {
   },
 
   async creator(id) {
-    const p = await api("GET", "/creators/" + id);
+    const [p, campaigns, deals] = await Promise.all([api("GET", "/creators/" + id),
+      api("GET", "/campaigns").then(cs => cs.filter(x => x.creator_id === id)).catch(() => []),
+      api("GET", "/deals?creator_id=" + id).catch(() => [])]);
     const c = p.creator, snap = p.snapshots[0] || {}, q = p.qualification, cls = p.classification;
+    const campName = h("input", { value: `${c.display_name || "Creator"} partnership`, size: 30 });
+    const refCode = h("input", { placeholder: "their Reditus ?ref= code", pattern: "[A-Za-z0-9_-]{2,60}" });
+    const campDeal = h("select", {}, h("option", { value: "" }, "no deal yet"),
+      ...deals.map(d => h("option", { value: d.id }, `${d.structure} · ${d.status}`)));
     const target = h("select", {}, ...["preliminary_qualified", "deep_analysis", "recommended", "contact_identified", "outreach_approved",
       "contacted", "replied", "negotiating", "agreement_pending", "active_partnership", "campaign_completed", "under_performance_review",
       "re_engagement_candidate", "rejected", "do_not_contact"].map(s => h("option", { value: s }, s)));
@@ -264,6 +270,17 @@ const views = {
       panel("Contacts", p.contacts.length ? table([{ label: "Type", key: "contact_type" }, { label: "Value", key: "value" },
         { label: "Source", key: "source" }, { label: "Verification", key: "verification_status" }], p.contacts)
         : h("p", { class: "muted" }, "No contact on file. Contacts are fetched only after qualification and never guessed.")),
+      panel("Campaign tracking",
+        campaigns.length ? table([{ label: "Campaign", key: "name" }, { label: "Referral code", key: "referral_code" },
+          { label: "Window (days)", key: "attribution_window_days", num: true }, { label: "Status", key: "status" }], campaigns)
+          : h("p", { class: "muted" }, "Not tracked yet. When they join the affiliate program, enter the code from their Reditus link " +
+            "(reelforgeai.io/?ref=CODE). Signups through that link, including earlier ones, are then attributed to them."),
+        h("div", { class: "row", style: "margin-top:10px" }, field("Name", campName), field("Reditus referral code", refCode),
+          field("Deal", campDeal),
+          h("button", { onclick: () => refCode.value.trim() ? api("POST", "/campaigns", { creator_id: id, name: campName.value,
+            referral_code: refCode.value.trim(), deal_id: campDeal.value || null })
+            .then(r => { flash(`Tracking ${r.referral_code}` + (r.earlier_signups_attributed ? `; ${r.earlier_signups_attributed} earlier signup(s) attributed` : "")); views.creator(id); })
+            .catch(e => flash(e.message, true)) : flash("Enter their Reditus referral code", true) }, "Start tracking"))),
       panel("Actions", h("div", { class: "row" }, target, reason,
         h("button", { onclick: () => api("POST", `/crm/creators/${id}/transition`, { status: target.value, reason: reason.value || null })
           .then(() => { flash("Status updated"); views.creator(id); }).catch(e => flash(e.message, true)) }, "Move"),

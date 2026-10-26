@@ -12,6 +12,7 @@ from rpi.financial_ledger import ledger, reports
 pytestmark = pytest.mark.db
 
 T0 = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+V1 = "/rpi/api/v1"
 
 
 def invoice_event(eid, inv, customer, paid, *, tax=0, discount=0, reason="subscription_create", at=T0, price="price_creator_m",
@@ -167,3 +168,44 @@ async def test_cohort_retention_from_charges(pool):
         result = await reports.cohorts(conn)
     cohort = result["cohorts"][0]
     assert cohort["customers"] == 4 and cohort["retention"][0] == 1.0 and cohort["retention"][1] == 0.25
+
+
+async def test_campaign_created_after_signups_picks_up_earlier_referrals(api, pool):
+    """A creator's Reditus code used before RPI tracked them: creating the campaign attributes those signups."""
+    from rpi.attribution import touches
+
+    async with pool.acquire() as conn:
+        cid = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('Jack') RETURNING id")
+        await touches.identify(conn, {"customer_ref": "early", "signed_up_at": T0 - timedelta(days=3), "signup_referral_code": "JACK30"})
+        await touches.identify(conn, {"customer_ref": "paid", "signed_up_at": T0 - timedelta(days=2), "signup_referral_code": "jack30"})
+        await conn.execute("UPDATE rpi_customers SET first_paid_at = $1, attribution_locked_at = $1 WHERE customer_ref = 'paid'",
+                           T0 - timedelta(days=1))
+        await touches.identify(conn, {"customer_ref": "other", "signed_up_at": T0, "signup_referral_code": "SOMEONEELSE"})
+        assert await conn.fetchval("SELECT COUNT(*) FROM rpi_customers WHERE last_touch_campaign_id IS NOT NULL") == 0
+
+    r = await api.post(f"{V1}/campaigns", headers=api.admin, json={"creator_id": str(cid), "name": "Jack", "referral_code": "Jack30"})
+    assert r.status_code == 200, r.text
+    assert r.json()["earlier_signups_attributed"] == 2  # unlocked and already-paid-but-unattributed
+    async with pool.acquire() as conn:
+        rows = {x["customer_ref"]: x["last_touch_campaign_id"] for x in await conn.fetch("SELECT * FROM rpi_customers")}
+    assert str(rows["early"]) == str(rows["paid"]) == r.json()["id"] and rows["other"] is None
+
+    dup = await api.post(f"{V1}/campaigns", headers=api.admin, json={"creator_id": str(cid), "name": "Dup", "referral_code": "JACK30"})
+    assert dup.status_code == 409  # codes match case-insensitively
+
+
+async def test_a_campaign_never_takes_a_paid_customer_from_another_partner(api, pool):
+    from rpi.attribution import touches
+
+    async with pool.acquire() as conn:
+        a = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('A') RETURNING id")
+        b = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('B') RETURNING id")
+    first = await api.post(f"{V1}/campaigns", headers=api.admin, json={"creator_id": str(a), "name": "A", "referral_code": "ACODE"})
+    async with pool.acquire() as conn:
+        await touches.identify(conn, {"customer_ref": "c1", "signed_up_at": T0, "signup_referral_code": "ACODE"})
+        await conn.execute("UPDATE rpi_customers SET first_paid_at = $1, attribution_locked_at = $1, signup_referral_code = 'BCODE' "
+                           "WHERE customer_ref = 'c1'", T0 + timedelta(days=1))
+    second = await api.post(f"{V1}/campaigns", headers=api.admin, json={"creator_id": str(b), "name": "B", "referral_code": "BCODE"})
+    assert second.json()["earlier_signups_attributed"] == 0
+    async with pool.acquire() as conn:
+        assert str(await conn.fetchval("SELECT last_touch_campaign_id FROM rpi_customers WHERE customer_ref = 'c1'")) == first.json()["id"]
