@@ -19,6 +19,12 @@ Relevance, tuned with live CreatorDB searches on 2026-10-25:
   * mainLanguage is unreliable for bilingual channels; content screening has
     to confirm language.
 Values inside one filter are ORed; filters are ANDed.
+
+The outside-range presets cover the sizes the main presets leave out (3k-10k
+and 150k-500k subscribers), because size is a soft preference: an exceptionally
+relevant creator should not be missed for size alone. They are stricter on
+relevance (only the core segment hashtags) and on audience response, and the
+autopilot searches them only after the main presets are exhausted.
 """
 
 from __future__ import annotations
@@ -57,6 +63,13 @@ INCOME_NICHES = (
     "id_sidehustle_Education",
     "id_affiliatemarketing_Education",
 )
+# The highest-priority segments only: faceless channels, AI Shorts and automated
+# video creation, AI voiceover and editing. Broad AI-tool and general YouTube
+# growth tags are left out.
+CORE_HASHTAGS = (
+    "aivideogenerator", "aivideoediting", "texttovideo", "aivoiceover", "facelessyoutube",
+    "youtubeautomation", "aitoolsforcontentcreators",
+)
 RELEVANCE_FIELDS = ("keywords", "topics", "niches")
 
 _GATES: dict[str, Any] = {
@@ -76,7 +89,19 @@ PRESETS: dict[str, dict[str, Any]] = {
     # 10 filters: one credit per page.
     "quality": {**_GATES, "keywords": list(EDUCATOR_HASHTAGS), "topics": list(TOPICS), "niches": []},
     "quality_broad": {**_GATES, "keywords": [], "topics": list(TOPICS), "niches": list(CORE_NICHES + INCOME_NICHES)},
+    # Outside the 10k-150k band; also 10 filters. Small channels must show a
+    # strong response (median views at least a tenth of the top of the band,
+    # 4% engagement); large ones real reach (10k median views).
+    "outside_range_small": {**_GATES, "keywords": list(CORE_HASHTAGS), "topics": list(TOPICS), "niches": [],
+                            "min_subscribers": 3_000, "max_subscribers": 9_999,
+                            "min_median_views": 1_000, "min_engagement_rate": 0.04},
+    "outside_range_large": {**_GATES, "keywords": list(CORE_HASHTAGS), "topics": list(TOPICS), "niches": [],
+                            "min_subscribers": 150_001, "max_subscribers": 500_000,
+                            "min_median_views": 10_000, "min_engagement_rate": 0.03},
 }
+# Autopilot search order: the outside-range presets come last, so they are
+# searched only after both main presets are exhausted.
+AUTOPILOT_PRESETS = ("quality", "quality_broad", "outside_range_small", "outside_range_large")
 DEFAULT_PRESET = "quality"
 
 

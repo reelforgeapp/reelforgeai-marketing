@@ -20,6 +20,7 @@ from rpi.compliance import retention
 from rpi.compliance.policies import POLICIES
 from rpi.core.audit import audit
 from rpi.crm import suppression
+from rpi.discovery.presets import AUTOPILOT_PRESETS
 from rpi.outreach.sender import TEST_LINK_ID, verify_unsubscribe_token
 from rpi.providers import youtube_analytics
 
@@ -218,7 +219,7 @@ class AutopilotBody(BaseModel):
     discover_per_run: int = Field(default=25, ge=1, le=100)
     screen_per_run: int = Field(default=10, ge=0, le=100)
     analyze_per_run: int = Field(default=5, ge=0, le=50)
-    presets: list[str] = Field(default_factory=lambda: ["quality", "quality_broad"], min_length=1, max_length=10)
+    presets: list[str] = Field(default_factory=lambda: list(AUTOPILOT_PRESETS), min_length=1, max_length=10)
 
 
 @router.get("/autopilot")

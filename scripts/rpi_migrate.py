@@ -28,8 +28,10 @@ from rpi.sponsorship_intelligence.detection import DEFAULT_COMPETITORS  # noqa: 
 
 MIGRATIONS = ROOT / "database" / "migrations"
 # Applied in order; each file is idempotent.
-UP = [MIGRATIONS / "005_rpi_core.sql", MIGRATIONS / "006_rpi_scheduled_sends.sql", MIGRATIONS / "007_rpi_autopilot.sql"]
-DOWN = [MIGRATIONS / "007_rpi_autopilot_down.sql", MIGRATIONS / "006_rpi_scheduled_sends_down.sql",
+UP = [MIGRATIONS / "005_rpi_core.sql", MIGRATIONS / "006_rpi_scheduled_sends.sql", MIGRATIONS / "007_rpi_autopilot.sql",
+      MIGRATIONS / "008_rpi_outside_range_presets.sql"]
+DOWN = [MIGRATIONS / "008_rpi_outside_range_presets_down.sql", MIGRATIONS / "007_rpi_autopilot_down.sql",
+        MIGRATIONS / "006_rpi_scheduled_sends_down.sql",
         MIGRATIONS / "005_rpi_core_down.sql"]
 
 

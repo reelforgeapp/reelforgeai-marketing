@@ -18,7 +18,9 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
    off) get the next free day first. A day's count uses messages actually sent that day plus those scheduled. A
    draft whose schedule was cancelled with a reason is left alone.
 4. Researches only when fewer than *Keep this many messages waiting* are scheduled or awaiting approval: one page of
-   the current preset (`quality`, then `quality_broad`), continuing after the last page it searched, then the funnel
+   the current preset (`quality`, then `quality_broad`, then the outside-range presets `outside_range_small` and
+   `outside_range_large` for 3k–10k and 150k–500k subscribers with stricter relevance), continuing after the last
+   page it searched, then the funnel
    (*Screen per run*, *Deep-analyze per run*). The provider gateway refuses any CreatorDB call that would take the
    job past what is left of *Weekly credit allowance* over the last 7 days; USD budgets still apply. An allowance of
    0 turns research off.

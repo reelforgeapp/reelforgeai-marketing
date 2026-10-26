@@ -1,5 +1,16 @@
 # RPI changelog
 
+## 0.2.2 — 2026-10-26
+
+* **Outside-range discovery presets** (migration `008_rpi_outside_range_presets`): `outside_range_small`
+  (3,000–9,999 subscribers, median views ≥ 1,000, engagement ≥ 4%) and `outside_range_large` (150,001–500,000
+  subscribers, median views ≥ 10,000, engagement ≥ 3%). Both search only the core segment hashtags
+  (`CORE_HASHTAGS`) together with CreatorDB's topic classification, and both cost one credit per page. The
+  autopilot searches them after `quality` and `quality_broad` are exhausted, within the same weekly allowance.
+  Scoring still treats size as a soft preference, which lowers an outside-range creator's score slightly but never
+  excludes them. The migration appends the new presets to existing settings once; re-running migrations keeps an
+  admin's later choice.
+
 ## 0.2.1 — 2026-10-26
 
 * A creator with recent paid deals from several direct competitors gets one exclusivity question naming all of
