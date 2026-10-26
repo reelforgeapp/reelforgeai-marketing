@@ -512,7 +512,7 @@ const views = {
         { label: "Limit", render: r => money(r.limit_usd), num: true }, { label: "Spent", render: r => money(r.spent_usd), num: true },
         { label: "Alert at", render: r => pct(r.alert_ratio), num: true }], budgets.budgets),
         h("div", { class: "row", style: "margin-top:10px" }, bsel, amt, why, h("button", { onclick: () => api("POST", `/admin/budgets/${bsel.value}/change-requests`,
-          { requested_limit_usd: amt.value, reason: why.value }).then(r => { flash(r.applied ? "Decrease applied" : "Increase requested; another admin must approve"); views.admin(); })
+          { requested_limit_usd: amt.value, reason: why.value }).then(r => { flash(r.applied ? "Budget updated" : "Increase requested; an admin must approve"); views.admin(); })
           .catch(e => flash(e.message, true)) }, "Request change")),
         budgets.change_requests.length ? table([{ label: "Requested", render: r => money(r.requested_limit_usd) }, { label: "By", key: "requested_by" },
           { label: "Reason", key: "reason" }, { label: "Status", key: "status" },

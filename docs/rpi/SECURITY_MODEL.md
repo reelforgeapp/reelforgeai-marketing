@@ -26,7 +26,7 @@
 | Risk | Control |
 |---|---|
 | Unauthorized sending | Sending disabled by default; admin-only toggle; approver-only approval and send; every gate in `outreach/sender.py` re-checked at send time (enabled, approved, re-validated, stored contact, suppression incl. Partner Scout opt-outs, CRM status, contact spacing, daily limit, CAN-SPAM identity, signing salt); status compare-and-swap; unique in-flight draft per creator |
-| Over-budget spending | Every paid call reserves budget under a Postgres advisory lock; per-provider, global daily/monthly, per-job and per-creator caps; low-priority work paused at the alert threshold; budget increases require a second admin |
+| Over-budget spending | Every paid call reserves budget under a Postgres advisory lock; per-provider, global daily/monthly, per-job and per-creator caps; low-priority work paused at the alert threshold; an analyst's budget increase needs an admin; an admin's change applies immediately and is audited (single-admin control, owner decision 2026-10-26) |
 | Prompt injection | Untrusted content wrapped with per-request delimiters, closing tags neutralized, "treat as data" rules, forced report-only tool, schema validation, discarded unsupplied ids, deterministic recomputation of relevance; the model has no tools that act |
 | Fabricated outreach | Validator blocks familiarity claims, income claims, other commission rates, unverified numbers, unsupplied emails/URLs; re-validated at approval and at send |
 | Credential leakage | Secrets only in environment variables; never in prompts or client bundles; `structlog_redactor` scrubs keys/tokens in logs; provider errors redacted against the adapter's own secrets; audit details redacted |
@@ -45,3 +45,11 @@
   (no per-person keys or roles), and `/status` is public.
 * Token buckets are per process; with N worker processes the provider rate ceiling is N × the configured rate.
 * Backups and restore drills depend on Render PostgreSQL backups (DEPLOYMENT_RUNBOOK.md).
+
+## Network access
+
+The production database (`reelforge-marketing-db`) has an empty IP allow list since 2026-10-26. Only Render
+services in the same region reach it, over the internal hostname. There is no direct access from laptops:
+migrations run as Render jobs (DEPLOYMENT_RUNBOOK §3), and operators read through the RPI API (for example
+`GET /outreach/drafts/{id}/events` for delivery status). Point-in-time recovery is available (restore tested
+2026-10-26, see OPERATIONS_RUNBOOK).
