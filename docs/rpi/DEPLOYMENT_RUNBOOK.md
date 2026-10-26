@@ -74,7 +74,28 @@ mapping before running discovery. Review your CreatorDB customer agreement, then
 
 ## 7. Stripe
 
-In the Stripe dashboard (live mode) → Developers → Webhooks → *Add endpoint*:
+RPI needs its own Stripe webhook endpoint (a second one next to the product's) and that endpoint's signing secret
+in `RPI_STRIPE_WEBHOOK_SECRET`. Run `scripts/rpi_connect_stripe.py` yourself, because it uses the product's live
+Stripe key and writes a secret. It never prints either one.
+
+```bash
+python3 scripts/rpi_connect_stripe.py --dry-run   # what it would do
+python3 scripts/rpi_connect_stripe.py             # create the endpoint, store the secret on RPI web + worker, redeploy web
+python3 scripts/rpi_connect_stripe.py --verify    # endpoint enabled with all events; RPI accepts an event signed with the
+                                                  # stored secret (stored as ignored, never in the ledger) and rejects a bad one
+```
+
+It reads the Render API key from `RENDER_API_KEY`, or from the `RENDER_API_KEY=` line in `RENDER_ENV_FILE` (default
+`~/Projects/reelforge-ai/.env.analysis`), and the Stripe key from the reelforge-api service. If an endpoint for the
+RPI URL already exists, it stops: Stripe returns a signing secret only when an endpoint is created. In that case,
+reveal or roll the secret in the dashboard. The script does not set `RPI_STRIPE_PRICE_PLAN_MAP` (see below).
+
+A test event sent from the dashboard or the Stripe CLI in **test mode** never reaches this live-mode endpoint. Use
+`--verify`, or resend a recent live event to the endpoint from the dashboard.
+
+Done for production on 2026-10-26 (endpoint `we_1UUdQ12La262TFSsE6hwZNbC`, `--verify` OK).
+
+**Manual alternative.** In the Stripe dashboard (live mode) → Developers → Webhooks → *Add endpoint*:
 
 * URL `https://reelforgeai-marketing.onrender.com/rpi/api/v1/webhooks/stripe`
 * Events: `invoice.paid`, `invoice.payment_succeeded`, `charge.refunded`, `charge.dispute.created`,
@@ -84,8 +105,8 @@ In the Stripe dashboard (live mode) → Developers → Webhooks → *Add endpoin
 This is a second endpoint next to the product's own; nothing in the product changes. Copy the endpoint's signing
 secret into `RPI_STRIPE_WEBHOOK_SECRET` on the **reelforgeai-marketing** web service. Set
 `RPI_STRIPE_PRICE_PLAN_MAP` (JSON price id → plan name, from the product's `STRIPE_*_PRICE_ID` variables, e.g.
-`{"price_123": "creator"}`). Send a test event from the Stripe dashboard and check
-`GET /rpi/api/v1/reports/reconciliation`.
+`{"price_123": "creator"}`). Then run `scripts/rpi_connect_stripe.py --verify`, and later check
+`GET /rpi/api/v1/reports/reconciliation` once real events have arrived.
 
 The product side needs `RPI_BASE_URL` and `RPI_INGEST_KEY` (an RPI `ingest` principal) on **reelforge-api**.
 
