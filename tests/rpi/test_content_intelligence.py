@@ -123,6 +123,29 @@ async def test_llm_failure_falls_back_to_prefilter():
     assert any("Claude analysis unavailable" in r for r in result.uncertainty_reasons)
 
 
+async def test_model_output_sent_as_json_text_is_read():
+    """Claude sometimes returns a nested object or array of its tool input as JSON text
+    (the 2026-10-26 autopilot crash: the summary arrived as a string)."""
+    import json
+
+    def stringified(system, user, tool):
+        report = label_everything_responder("ai_video_tools", relevance=0.9, confidence=0.8)(system, user, tool)
+        return {"videos": json.dumps(report["videos"]), "creator_summary": json.dumps(report["creator_summary"])}
+
+    result = await analyze_creator(FakeLLM(stringified), videos(["Hmm", "Okay"]), fast=FAST, force_llm=True)
+    assert result.method == "claude_fast" and len(result.videos) == 2
+    assert result.confidence == 0.8 and result.primary_labels == ["ai_video_tools"]
+
+
+async def test_unusable_model_output_falls_back_to_keyword_rules():
+    def garbage(system, user, tool):
+        return {"videos": "not json", "creator_summary": 42}
+
+    result = await analyze_creator(FakeLLM(garbage), videos(["Hmm", "Okay"]), fast=FAST, force_llm=True)
+    assert result.method == "keyword_prefilter"  # never a confident zero-relevance verdict from nothing
+    assert any("no usable video labels" in r for r in result.uncertainty_reasons)
+
+
 def test_current_ai_video_tools_are_recognized():
     from rpi.content_intelligence.prefilter import match_text
 

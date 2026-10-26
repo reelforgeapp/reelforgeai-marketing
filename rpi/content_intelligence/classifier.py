@@ -16,6 +16,7 @@ kept as a separate, clearly labeled AI judgment.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Optional
@@ -147,6 +148,22 @@ def _clamp(v: Any, lo: float = 0.0, hi: float = 1.0) -> float:
         return lo
 
 
+def _structured(value: Any, kind: type) -> Any:
+    """`value` as a `kind` (dict or list), or None. Claude occasionally returns a
+    nested object or array of its tool input as JSON text; that crashed the
+    2026-10-26 autopilot run (a summary string had no .get)."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, kind) else None
+
+
+def _strings(value: Any) -> list[str]:
+    return [str(v) for v in _structured(value, list) or []]
+
+
 def computed_relevance(videos: list[VideoLabel]) -> float:
     """Deterministic creator relevance: mean over videos of the best taxonomy
     weight among each video's labels."""
@@ -164,17 +181,18 @@ def validate_report(report: dict, supplied_ids: list[str]) -> tuple[list[VideoLa
     videos: list[VideoLabel] = []
     dropped: list[str] = []
     seen: set[str] = set()
-    for item in report.get("videos") or []:
-        if not isinstance(item, dict):
+    for item in _structured(report.get("videos"), list) or []:
+        item = _structured(item, dict)
+        if item is None:
             continue
         ref = str(item.get("id", ""))
         if ref not in supplied or ref in seen:
             dropped.append(ref)
             continue
         seen.add(ref)
-        labels = [l for l in item.get("labels") or [] if l in LABEL_KEYS] or ["other"]
+        labels = [l for l in _strings(item.get("labels")) if l in LABEL_KEYS] or ["other"]
         intent = item.get("buyer_intent") if item.get("buyer_intent") in BUYER_INTENT_CLASSES else None
-        problems = [p for p in item.get("audience_problems") or [] if p in AUDIENCE_PROBLEMS]
+        problems = [p for p in _strings(item.get("audience_problems")) if p in AUDIENCE_PROBLEMS]
         videos.append(
             VideoLabel(
                 ref=ref,
@@ -186,14 +204,14 @@ def validate_report(report: dict, supplied_ids: list[str]) -> tuple[list[VideoLa
                 promotional=bool(item.get("promotional", False)),
             )
         )
-    summary = report.get("creator_summary") or {}
+    summary = _structured(report.get("creator_summary"), dict) or {}
     clean_summary = {
-        "primary_labels": [l for l in summary.get("primary_labels") or [] if l in LABEL_KEYS][:3],
+        "primary_labels": [l for l in _strings(summary.get("primary_labels")) if l in LABEL_KEYS][:3],
         "reelforge_relevance": _clamp(summary.get("reelforge_relevance")),
         "audience_problem": str(summary.get("audience_problem") or "")[:300] or None,
-        "addressable_problems": [p for p in summary.get("addressable_problems") or [] if p in AUDIENCE_PROBLEMS],
+        "addressable_problems": [p for p in _strings(summary.get("addressable_problems")) if p in AUDIENCE_PROBLEMS],
         "confidence": _clamp(summary.get("confidence")),
-        "uncertainty_reasons": [str(r)[:200] for r in (summary.get("uncertainty_reasons") or [])][:6],
+        "uncertainty_reasons": [r[:200] for r in _strings(summary.get("uncertainty_reasons"))][:6],
     }
     return videos, clean_summary, dropped
 
@@ -297,6 +315,8 @@ async def _llm_pass(llm, videos, price, method, job_id, creator_id, priority) ->
         return _error_analysis(method, price.model, result.error or "unknown error", result.cost_usd)
 
     labels, summary, dropped = validate_report(result.data, wrapped.ids)
+    if not labels:  # nothing usable came back: treated like a failed call, so keyword rules decide
+        return _error_analysis(method, price.model, "model returned no usable video labels", result.cost_usd)
     by_ref = {v.ref: v for v in videos}
     evidence = [
         {"kind": "content", "ref": vl.ref, "url": by_ref[vl.ref].url, "excerpt": (by_ref[vl.ref].title or "")[:140],

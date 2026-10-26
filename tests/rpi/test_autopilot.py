@@ -211,20 +211,28 @@ async def test_contact_lookup_refused_by_the_cap_is_retried_once_allowance_retur
 
 
 @pytest.mark.db
-async def test_failed_research_job_is_canceled_keeps_its_page_and_cannot_be_resumed(api, pool, fake_llm):
+async def test_failed_research_job_is_canceled_keeps_its_page_and_cannot_be_resumed(api, pool, fake_llm, monkeypatch):
+    from rpi.administration import jobs
+
     await configure(pool)
     ctx = make_context(pool, llm=fake_llm)
+    real_funnel = jobs._funnel
 
-    async def broken_screen(creator_id, call_ctx, actor):
-        raise RuntimeError("provider exploded")
+    async def funnel_then_crash(*args, **kwargs):
+        status, progress = await real_funnel(*args, **kwargs)  # saves progress after every creator
+        assert progress["deep"]["done"]
+        raise RuntimeError("database went away")
 
-    ctx.research.screen = broken_screen
+    monkeypatch.setattr(jobs, "_funnel", funnel_then_crash)
     summary = await run_cycle(pool, ctx)
-    assert "failed" in summary["research"]
+    assert "failed: database went away" in summary["research"]
     async with pool.acquire() as conn:
-        job = await conn.fetchrow("SELECT id, status FROM rpi_research_jobs")
+        job = await conn.fetchrow("SELECT id, status, progress::text FROM rpi_research_jobs")
         cursor = await conn.fetchval("SELECT discovery_cursor->>'none' FROM rpi_autopilot_settings")
     assert job["status"] == "canceled"
+    # Per-creator saves keep the job's other stages (2026-10-26 a deep-stage save overwrote the discovery
+    # progress, so a failure lost the page it had searched).
+    assert '"discovery"' in job["progress"] and '"screen"' in job["progress"]
     assert cursor == "25"  # the page it searched before failing is not bought again
     resumed = await api.post(f"{V1}/jobs/{job['id']}/resume?inline=true", headers=api.admin)
     assert "only inside an autopilot cycle" in resumed.text
@@ -329,3 +337,27 @@ async def test_outside_range_migration_appends_presets_once(pool):
         await conn.execute("UPDATE rpi_autopilot_settings SET presets = ARRAY['quality']")  # an admin's choice
         await conn.execute(sql)  # migrations re-run on every deploy
         assert await conn.fetchval("SELECT presets FROM rpi_autopilot_settings") == ["quality"]
+
+
+@pytest.mark.db
+async def test_one_creator_failing_does_not_stop_research(pool, fake_llm):
+    await configure(pool)
+    ctx = make_context(pool, llm=fake_llm)
+    real_screen = ctx.research.screen
+    broken: list[str] = []
+
+    async def flaky_screen(creator_id, call_ctx, actor):
+        if not broken:
+            broken.append(str(creator_id))
+            raise RuntimeError("unreadable model response")
+        return await real_screen(creator_id, call_ctx, actor)
+
+    ctx.research.screen = flaky_screen
+    summary = await run_cycle(pool, ctx)
+    research = summary["research"]
+    assert research["status"] == "succeeded" and research["screened"] > 1, research
+    assert research["failed"] == [f"{broken[0]}: failed: unreadable model response"]
+    assert summary["drafted"]  # drafting and scheduling still ran after research
+    async with pool.acquire() as conn:
+        alert = await conn.fetchval("SELECT message FROM rpi_alerts WHERE dedupe_key LIKE 'autopilot:creator_failed:%'")
+    assert alert and "skipped 1 creator" in alert

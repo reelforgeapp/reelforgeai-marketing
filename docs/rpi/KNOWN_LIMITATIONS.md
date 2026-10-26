@@ -24,6 +24,8 @@
 
 * Lookalike discovery (strategy D) is not implemented; it needs outcome data from completed campaigns.
 * Comment-level buyer-intent analysis is not implemented. Buyer intent is classified from creator content.
+* A creator whose deep analysis keeps failing is retried on every run (a sponsorship lookup is cached for 14
+  days, so a retry mostly costs Claude tokens) until a person looks at the alert.
 * The spoken-language gate trusts the language uploaders declare on their videos. Channels that declare none
   pass unchecked, and the gate fails open (no YouTube key, quota exhausted, API error). Its quota is shared with
   Partner Scout's daily YouTube discovery.

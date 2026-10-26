@@ -119,7 +119,14 @@ async def run_job(pool, job_id: str, *, discovery, research, stages: StageSizes,
         raise
 
 
-async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop=None):
+FAILED = "failed: "
+
+
+async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop=None, parent=None):
+    """Screen or deep-analyze `ids`, saving progress after each creator. Inside a
+    multi-stage job, `parent` is (job progress, this stage's key), so each save
+    keeps the other stages' progress. One creator's error is recorded as
+    "failed: ..." and the job moves on."""
     done = set(progress.get("done", []))
     results = progress.get("results", {})
     for cid in ids:
@@ -127,11 +134,15 @@ async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop
             continue
         if stop is not None and await stop():
             return "stopped", {"done": sorted(done), "results": results}
-        r = await (research.screen(cid, ctx, actor) if kind == "screen" else research.deep(cid, ctx, actor))
+        try:
+            r = await (research.screen(cid, ctx, actor) if kind == "screen" else research.deep(cid, ctx, actor))
+        except Exception as exc:  # e.g. an unreadable model response; deep analysis is retried on a later run
+            logger.exception("rpi_creator_research_failed", job_id=job_id, creator_id=cid, stage=kind)
+            r = {"error": f"{FAILED}{exc}"[:300], "notes": []}
         results[cid] = (r.get("qualification") or {}).get("recommendation") or r.get("error")
         done.add(cid)
         progress = {"done": sorted(done), "results": results}
-        await _set(pool, job_id, progress=progress)
+        await _set(pool, job_id, progress={**parent[0], parent[1]: progress} if parent else progress)
         if any("budget" in n for n in r.get("notes", [])):
             return "paused_budget", progress
     return "succeeded", progress
@@ -150,27 +161,30 @@ SCREEN_QUEUE_SQL = """
 
 async def _funnel(pool, research, ctx, progress, stages: StageSizes, actor, job_id, params, stop=None):
     """Stage 2 screens the best stage-1 candidates; stage 3-4 deep-analyzes
-    the best screened creators. Sizes are configurable per job."""
+    the best screened creators, including any whose deep analysis was
+    interrupted (still in deep_analysis with only a stage-2 score). Sizes are
+    configurable per job."""
     screen_n = int(params.get("screen", stages.screen))
     analyze_n = int(params.get("analyze", stages.analyze))
     async with pool.acquire() as conn:
         to_screen = await conn.fetch(
             f"SELECT c.id {SCREEN_QUEUE_SQL} ORDER BY d.s DESC, c.created_at LIMIT $1", screen_n)
     status, p2 = await _process(pool, research, "screen", [str(r["id"]) for r in to_screen], ctx,
-                                progress.get("screen", {}), actor, job_id, stop)
+                                progress.get("screen", {}), actor, job_id, stop, parent=(progress, "screen"))
     progress = {**progress, "screen": p2}
     await _set(pool, job_id, progress=progress)
     if status in ("paused_budget", "stopped"):
         return status, progress
     async with pool.acquire() as conn:
         to_deep = await conn.fetch(
-            """SELECT DISTINCT ON (q.creator_id) q.creator_id, q.overall FROM rpi_qualification_scores q
-               JOIN rpi_creators c ON c.id = q.creator_id
-               WHERE c.pipeline_status = 'preliminary_qualified' AND c.disqualified_reason IS NULL
+            """SELECT DISTINCT ON (q.creator_id) q.creator_id, q.overall, q.stage, c.pipeline_status
+               FROM rpi_qualification_scores q JOIN rpi_creators c ON c.id = q.creator_id
+               WHERE c.pipeline_status IN ('preliminary_qualified', 'deep_analysis') AND c.disqualified_reason IS NULL
                ORDER BY q.creator_id, q.computed_at DESC""")
-    ranked = sorted(to_deep, key=lambda r: r["overall"] or 0, reverse=True)[:analyze_n]
+    waiting = [r for r in to_deep if r["pipeline_status"] == "preliminary_qualified" or r["stage"] < 3]
+    ranked = sorted(waiting, key=lambda r: r["overall"] or 0, reverse=True)[:analyze_n]
     status, p3 = await _process(pool, research, "deep", [str(r["creator_id"]) for r in ranked], ctx,
-                                progress.get("deep", {}), actor, job_id, stop)
+                                progress.get("deep", {}), actor, job_id, stop, parent=(progress, "deep"))
     progress = {**progress, "deep": p3}
     return status, progress
 
@@ -217,7 +231,7 @@ async def _autopilot(pool, discovery, research, ctx, progress, stages: StageSize
         async with pool.acquire() as conn:
             retry = await conn.fetch(CONTACT_RETRY_SQL, int(params.get("analyze", stages.analyze)))
         status, p4 = await _process(pool, research, "deep", [str(r["id"]) for r in retry], ctx,
-                                    progress.get("contacts", {}), actor, job_id, stop)
+                                    progress.get("contacts", {}), actor, job_id, stop, parent=(progress, "contacts"))
         progress = {**progress, "contacts": p4}
     if status == "paused_budget":
         return "succeeded", {**progress, "stopped": "spending cap reached"}
