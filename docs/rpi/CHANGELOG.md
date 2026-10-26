@@ -1,5 +1,13 @@
 # RPI changelog
 
+## 0.2.9 — 2026-10-26
+
+* **Uniform-engagement check.** The risk screen flags creators whose videos all land on about the same views and
+  likes (`uniform_engagement`, severity `elevated`: under 2× apart on views and 2.5× on likes across 10+ videos),
+  the pattern of views and likes bought per video that the flat-engagement check cannot judge because views barely
+  vary. Flagged creators are rejected as `reject_suspect_engagement`. Tested on the 55 creators scored so far: it
+  flags NyesWorldTV and Tech Explorer AI and nothing else. No extra credits.
+
 ## 0.2.8 — 2026-10-26
 
 * **Autopilot crash fixed.** The 07:30 ET run on 2026-10-26 stopped in deep analysis with "'str' object has no

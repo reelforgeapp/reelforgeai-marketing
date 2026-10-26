@@ -31,6 +31,15 @@ FLAT_MIN_AGE = timedelta(days=3)
 FLAT_MIN_VIEW_SPREAD = 2.0  # 90th / 10th percentile views; below it the slope means little
 FLAT_MAX_SLOPE = 0.3
 
+# Uniform engagement: the case flat engagement cannot judge, where views are
+# bought too, so every video lands on about the same views and likes.
+# NyesWorldTV and Tech Explorer AI (2026-10-26) had views within 1.2-1.8x and
+# likes within 1.2-2.2x (90th / 10th percentile) across 30-49 videos, views that
+# stopped growing after a few days, and comments from the same comment farm; of
+# 55 scored creators no other had both views under 2x and likes under 3x.
+UNIFORM_MIN_VIDEOS = 10
+UNIFORM_MAX_LIKE_SPREAD = 2.5
+
 
 @dataclass
 class VideoStats:
@@ -94,9 +103,10 @@ def screen(
         elif mean < 0.002:
             signals.append(RiskSignal("engagement_unusually_low", "info", round(mean, 4),
                                       f"average like rate {mean:.2%} is low"))
-    flat = flat_engagement(videos, now)
-    if flat:
-        signals.append(flat)
+    for check in (flat_engagement, uniform_engagement):
+        signal = check(videos, now)
+        if signal:
+            signals.append(signal)
 
     dated = sorted(v.published_at for v in videos if v.published_at)
     if dated:
@@ -143,16 +153,27 @@ def screen(
     }
 
 
+def _judged(videos: list[VideoStats], now: datetime) -> list[VideoStats]:
+    """Long-form videos old enough to have collected their likes, with views and likes."""
+    return [v for v in videos if v.is_short is not True and v.views and v.likes
+            and (v.published_at is None or now - v.published_at >= FLAT_MIN_AGE)]
+
+
+def _deciles(values: list[int]) -> tuple[int, int]:
+    """10th and 90th percentile values."""
+    ordered = sorted(values)
+    return ordered[int(0.1 * (len(ordered) - 1))], ordered[int(0.9 * (len(ordered) - 1))]
+
+
 def flat_engagement(videos: list[VideoStats], now: datetime) -> Optional[RiskSignal]:
     """An `elevated` signal when likes do not rise with views across recent
     long-form videos: the slope of log(likes) on log(views) is below
     FLAT_MAX_SLOPE although views vary at least FLAT_MIN_VIEW_SPREAD-fold."""
-    vids = [v for v in videos if v.is_short is not True and v.views and v.likes
-            and (v.published_at is None or now - v.published_at >= FLAT_MIN_AGE)]
+    vids = _judged(videos, now)
     if len(vids) < FLAT_MIN_VIDEOS:
         return None
-    views = sorted(v.views for v in vids)
-    spread = views[int(0.9 * (len(views) - 1))] / views[int(0.1 * (len(views) - 1))]
+    low, high = _deciles([v.views for v in vids])
+    spread = high / low
     if spread < FLAT_MIN_VIEW_SPREAD:
         return None
     x = [math.log(v.views) for v in vids]
@@ -166,3 +187,21 @@ def flat_engagement(videos: list[VideoStats], now: datetime) -> Optional[RiskSig
                       f"likes stay at {min(likes):,}-{max(likes):,} per video while views vary {spread:.1f}x across "
                       f"{len(vids)} videos: 10x the views brings {10 ** slope:.2f}x the likes, where real channels "
                       "get about 4-15x; typical of engagement bought per video")
+
+
+def uniform_engagement(videos: list[VideoStats], now: datetime) -> Optional[RiskSignal]:
+    """An `elevated` signal when recent long-form videos all land on about the
+    same views (90th / 10th percentile under FLAT_MIN_VIEW_SPREAD) and the same
+    likes (under UNIFORM_MAX_LIKE_SPREAD): views and likes bought per video."""
+    vids = _judged(videos, now)
+    if len(vids) < UNIFORM_MIN_VIDEOS:
+        return None
+    views_low, views_high = _deciles([v.views for v in vids])
+    likes_low, likes_high = _deciles([v.likes for v in vids])
+    view_spread, like_spread = views_high / views_low, likes_high / likes_low
+    if view_spread >= FLAT_MIN_VIEW_SPREAD or like_spread >= UNIFORM_MAX_LIKE_SPREAD:
+        return None
+    return RiskSignal("uniform_engagement", "elevated", round(view_spread, 2),
+                      f"most videos land on {views_low:,}-{views_high:,} views and {likes_low:,}-{likes_high:,} likes "
+                      f"across {len(vids)} videos ({view_spread:.1f}x and {like_spread:.1f}x apart), where views and "
+                      "likes usually vary 3x or more; typical of views and likes bought per video")
