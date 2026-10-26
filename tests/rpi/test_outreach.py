@@ -211,6 +211,52 @@ def test_template_skips_income_and_competitor_titles_and_greets_the_channel():
     assert validate_draft(subject, body, build_grounding(ctx, None)).ok
 
 
+def test_template_skips_titles_naming_other_channels_or_hiding_characters():
+    from rpi.outreach.drafts import DraftContext, build_grounding, template_draft
+    from rpi.outreach.validator import validate_draft
+
+    videos = [{"ref": "1", "title": "Make 30 Minutes Long Ai Videos Like \u202a@sarvatrahindutva\u202c | FULL COURSE", "url": None},
+              {"ref": "2", "title": "Go viral\u200b with this trick", "url": None},
+              {"ref": "3", "title": "Every individual creator needs this workflow", "url": None}]
+    ctx = DraftContext(creator_id="c", creator_name="Chad Grow", videos=videos, primary_labels=["ai_video_tools"],
+                       capabilities=[], commission_rate_pct="30", commission_duration_text="for 12 months",
+                       proposition="paid sponsorship", request_audience_data=True, sender_name="Larry",
+                       avoid_title_terms=("Vidu",))  # whole words only: "individual" is not Vidu
+    subject, body = template_draft(ctx)
+    assert '"Every individual creator needs this workflow"' in body
+    assert "@" not in body and "\u202a" not in body and "\u200b" not in body
+    assert validate_draft(subject, body, build_grounding(ctx, None)).ok
+
+
+def test_validator_blocks_hidden_characters_and_other_accounts():
+    bad = GOOD.replace("Hi Sam,", "Hi Sam \u202e@someone\u202c,")
+    result = validate_draft("Partnership idea", bad, G)
+    assert any("hidden formatting characters: U+202C, U+202E" in e for e in result.errors)
+    assert any("names another channel or account: '@someone'" in e for e in result.errors)
+    signed = GOOD + "\n\nReply to jr@reelforgeai.io"
+    assert validate_draft("Partnership idea", signed, Grounding(**{**G.__dict__, "sender_email": "jr@reelforgeai.io"})).ok
+
+
+@pytest.mark.db
+async def test_new_registry_competitors_link_sponsorships_recorded_before_them(pool):
+    from datetime import datetime, timedelta, timezone
+
+    from rpi.enrichment.service import creator_competitor_deals
+    from scripts.rpi_migrate import seed_competitors
+
+    async with pool.acquire() as conn:
+        cid = await conn.fetchval("INSERT INTO rpi_creators (display_name) VALUES ('Chad') RETURNING id")
+        recent = datetime.now(timezone.utc) - timedelta(days=20)
+        await conn.execute(
+            """INSERT INTO rpi_sponsorship_relationships (creator_id, brand_name, relationship_type, source, published_at)
+               VALUES ($1, 'TopviewAI', 'confirmed_paid', 'creatordb', $2), ($1, 'Fish Audio', 'confirmed_paid', 'creatordb', $2)""",
+            cid, recent)
+        result = await seed_competitors(conn)
+        assert result["sponsorships_linked"] == 1  # Fish Audio is not a competitor
+        deals = await creator_competitor_deals(conn, cid, now=datetime.now(timezone.utc))
+    assert [brand for brand, _ in deals] == ["TopviewAI"]  # direct competitor: the email asks about exclusivity
+
+
 # --------------------------------------------------------------------------
 # Partner Scout email history
 # --------------------------------------------------------------------------

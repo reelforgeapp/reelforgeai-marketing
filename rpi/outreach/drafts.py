@@ -21,7 +21,7 @@ from rpi.compliance.untrusted import DATA_HANDLING_RULES, wrap_items
 from rpi.content_intelligence.claude_client import LLM, ModelPrice
 from rpi.content_intelligence.taxonomy import LABEL_BY_KEY
 from rpi.core.audit import audit
-from rpi.outreach.validator import INCOME_PATTERNS, NUMBER_RE, Grounding, validate_draft
+from rpi.outreach.validator import INCOME_PATTERNS, MENTION_RE, NUMBER_RE, Grounding, hidden_characters, validate_draft
 
 AFFILIATE_INFO_URL = "https://www.reelforgeai.io/become-affiliate"
 PRODUCT_URL = "https://reelforgeai.io"
@@ -67,10 +67,13 @@ def build_grounding(ctx: DraftContext, sender_email: Optional[str]) -> Grounding
 
 def citable_videos(ctx: DraftContext) -> list[dict]:
     """Videos the email may quote: never a title with an income claim (quoting
-    it reads as endorsing it) and, when possible, not one about a competitor."""
-    clean = [v for v in ctx.videos if v.get("title") and not any(re.search(p, v["title"], re.IGNORECASE) for p in INCOME_PATTERNS)]
-    avoid = [t.lower() for t in ctx.avoid_title_terms]
-    neutral = [v for v in clean if not any(t in v["title"].lower() for t in avoid)]
+    it reads as endorsing it), one that names another channel or account, or one
+    with hidden formatting characters; and, when possible, not one about a competitor."""
+    clean = [v for v in ctx.videos if v.get("title")
+             and not any(re.search(p, v["title"], re.IGNORECASE) for p in INCOME_PATTERNS)
+             and not MENTION_RE.search(v["title"]) and not hidden_characters(v["title"])]
+    avoid = [re.compile(rf"(?<![\w]){re.escape(t)}(?![\w])", re.IGNORECASE) for t in ctx.avoid_title_terms if t]
+    neutral = [v for v in clean if not any(p.search(v["title"]) for p in avoid)]
     return neutral or clean
 
 

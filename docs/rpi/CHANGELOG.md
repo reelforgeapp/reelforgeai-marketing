@@ -1,5 +1,15 @@
 # RPI changelog
 
+## 0.2.1 — 2026-10-26
+
+* Drafts no longer quote a video title that names another channel or account (`@handle`) or contains hidden
+  formatting characters (Unicode Cf, such as text-direction controls). The validator rejects both anywhere in a
+  draft, so a draft that has them fails re-validation at send.
+* Competitor title avoidance matches whole words ("Vidu" no longer matches "individual").
+* Competitor registry adds Higgsfield, Topview and Flova (direct), and DeeVid, Kling, Vidu and OpenArt
+  (adjacent). `scripts/rpi_migrate.py` `seed_competitors` adds missing registry entries and links sponsorships
+  recorded before their brand was listed, so exclusivity questions see them.
+
 ## 0.2.0 — 2026-10-25
 
 * **Autopilot** (migration `007_rpi_autopilot`, `rpi.administration.autopilot`): a daily worker job

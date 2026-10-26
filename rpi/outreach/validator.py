@@ -16,6 +16,7 @@ before sending.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 FAMILIARITY_PATTERNS = [
@@ -61,6 +62,16 @@ def _norm_number(token: str) -> str:
     return token.replace("$", "").replace(",", "").rstrip("%").rstrip(".")
 
 
+# Another channel or account named in text ("@handle"), but not an email address.
+MENTION_RE = re.compile(r"(?<![\w.@])@[A-Za-z0-9_][A-Za-z0-9_.\-]+")
+
+
+def hidden_characters(text: str) -> list[str]:
+    """Invisible formatting characters (Unicode Cf: text-direction controls,
+    zero-width marks). They can reorder or hide text, so outreach never carries them."""
+    return sorted({f"U+{ord(ch):04X}" for ch in text if unicodedata.category(ch) == "Cf"})
+
+
 def validate_draft(subject: str, body: str, grounding: Grounding, *, max_words: int = 220) -> ValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -89,6 +100,13 @@ def validate_draft(subject: str, body: str, grounding: Grounding, *, max_words: 
         if len(token) == 1:  # "1 video", "2 ideas"
             continue
         errors.append(f"number '{m.group(0)}' is not in the verified facts")
+
+    hidden = hidden_characters(text)
+    if hidden:
+        errors.append("contains hidden formatting characters: " + ", ".join(hidden[:5]))
+    m = MENTION_RE.search(text)
+    if m:
+        errors.append(f"names another channel or account: '{m.group(0)}'")
 
     for email in EMAIL_RE.findall(text):
         if not grounding.sender_email or email.lower() != grounding.sender_email.lower():
