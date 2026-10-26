@@ -1,5 +1,17 @@
 # RPI changelog
 
+## 0.2.7 — 2026-10-26
+
+* **Spoken-language gate** (`rpi.qualification.language_gate`). CreatorDB labels channels by their titles, so
+  Hindi-speaking channels with English titles passed its English filter; Hindi AI Gyaan was recommended and
+  auto-approved. RPI now reads the spoken language of each channel's 10 newest videos from the YouTube Data API
+  (2 quota units, no CreatorDB credits) right after each search, and again before screening and deep analysis.
+  Channels whose videos mostly declare another language are disqualified (`non_english_audio`) before any paid
+  research. The autopilot no longer drafts for disqualified creators. `POST /research/language-check` re-checks
+  chosen creators for free.
+* Re-checked on 2026-10-26: 6 of the 9 creators waiting to be screened and 2 recommended creators (Hindi AI
+  Gyaan, Chad Grow) speak another language. Hindi AI Gyaan's scheduled email was held.
+
 ## 0.2.6 — 2026-10-26
 
 * **Flat-engagement check (scoring qual-2026-10-26.1).** The risk screen flags creators whose likes stay the same

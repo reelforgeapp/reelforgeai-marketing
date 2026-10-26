@@ -73,6 +73,9 @@ POLICIES: dict[str, ProviderPolicy] = {
             "III.E.4(h): do not create new or derived data or metrics from API data (e.g. a score "
             "that factors in likes or views). RPI scoring therefore never reads YouTube-API-sourced fields.",
             "III.D.1(c): exactly one API project per API client; no key rotation to exceed quota.",
+            "Spoken-language gate (2026-10-26): each recent video's defaultAudioLanguage is used only as a "
+            "pass/fail research filter; no score or metric is built from it and only the decision is stored. "
+            "Operator's judgment that a raw-field filter is not derived data, not a legal review.",
             "III.E.6: no scraping.",
             "III.G.1 / III.I.15: no selling, redistributing or reselling API data.",
             "AI analysis / training of API data is not explicitly addressed in the sections reviewed; "

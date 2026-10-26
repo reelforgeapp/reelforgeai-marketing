@@ -38,6 +38,7 @@ from rpi.providers.base import (
     ProviderResult,
     ResultStatus,
     Transcript,
+    VideoLanguages,
 )
 
 logger = structlog.get_logger()
@@ -54,6 +55,7 @@ RESULT_MODELS = {
     Capability.TRANSCRIPT: (None, Transcript),
     Capability.AUTHORIZED_ANALYTICS: (None, AudienceBreakdown),
     Capability.AUDIENCE_RESEARCH: (None, AudienceResearchResult),
+    Capability.VIDEO_LANGUAGES: (None, VideoLanguages),
 }
 
 # Contact data is never cached; it must be re-read from the canonical store.

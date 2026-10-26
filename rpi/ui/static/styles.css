@@ -56,7 +56,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tag.synthetic { background: var(--synthetic); color: var(--synthetic-ink); }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); font-size: 12px; }
 .pill.recommend { border-color: var(--good); color: var(--good); }
-.pill.reject_niche_mismatch, .pill.reject_suspect_engagement, .pill.elevated_review, .pill.elevated { border-color: var(--bad); color: var(--bad); }
+.pill.reject_niche_mismatch, .pill.reject_suspect_engagement, .pill.reject_non_english, .pill.non_english_audio, .pill.elevated_review, .pill.elevated { border-color: var(--bad); color: var(--bad); }
 .pill.review_recommended, .pill.investigate { border-color: var(--warn); color: var(--warn); }
 .kanban { display: grid; grid-auto-flow: column; grid-auto-columns: 230px; gap: 10px; overflow-x: auto; padding-bottom: 8px; }
 .column { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; min-height: 120px; }

@@ -142,6 +142,7 @@ async def _draft_new(conn, ctx, now: datetime, summary: dict) -> None:
     creators = await conn.fetch(
         """SELECT c.id, c.display_name FROM rpi_creators c
            WHERE c.pipeline_status IN ('recommended', 'contact_identified')
+             AND c.disqualified_reason IS NULL
              AND (SELECT q.recommendation FROM rpi_qualification_scores q WHERE q.creator_id = c.id
                   ORDER BY q.computed_at DESC LIMIT 1) = 'recommend'
              AND EXISTS (SELECT 1 FROM rpi_creator_contacts k WHERE k.creator_id = c.id AND k.contact_type = 'email'
@@ -298,7 +299,8 @@ async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
         spent = await credits_used(conn, provider, now)
     summary["research"] = {
         "job_id": job_id, "status": result.get("status"), "preset": preset, "page_token": token,
-        "discovery": {k: disc.get(k) for k in ("skipped", "total_found", "new_creators", "preliminary_qualified") if k in disc},
+        "discovery": {k: disc.get(k) for k in ("skipped", "total_found", "new_creators", "preliminary_qualified", "non_english")
+                      if k in disc},
         "screened": len((progress.get("screen") or {}).get("done", [])),
         "deep_analyzed": len((progress.get("deep") or {}).get("done", [])),
         "contacts_retried": len((progress.get("contacts") or {}).get("done", [])),

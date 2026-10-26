@@ -45,6 +45,20 @@ curiosity without purchase intent, negative/unsuitable fit. Today these are clas
 caveat. Comment analysis is not implemented because of YouTube API data restrictions. Predictive usefulness must
 be validated against campaign outcomes before it influences ranking.
 
+## Spoken-language gate
+
+RPI targets English-speaking channels. CreatorDB's `mainLanguage` follows a channel's titles, so channels that title in
+English but speak Hindi passed its filter (Hindi AI Gyaan, Chad Grow), and its search can include languages but not
+exclude them. After every CreatorDB search, and again before screening and deep analysis, RPI reads the spoken
+language each of the channel's 10 newest uploads declares (YouTube `defaultAudioLanguage`, 2 free quota units).
+When at least 3 videos declare one and fewer than half of those declare English, the creator is disqualified
+(`non_english_audio`, recommendation `reject_non_english`) before any CreatorDB credit is spent on them. Fewer than 3
+declared languages, no YouTube key or an API error: the creator continues unchecked. `POST /research/language-check`
+runs the check alone for chosen creators.
+
+On 2026-10-26 the check found 6 of the 9 creators waiting to be screened, and 2 of 8 recommended creators, speaking
+Hindi, Ukrainian or Malayalam. 6 of the 24 creators checked declared no language and would pass unchecked.
+
 ## Qualification score (`qual-2026-10-26.1`)
 
 | Component | Weight | Source |

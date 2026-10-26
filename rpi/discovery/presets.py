@@ -16,8 +16,9 @@ Relevance, tuned with live CreatorDB searches on 2026-10-25:
     Shorts), so they are used only in the broad preset, together with topics;
   * #faceless and #aishorts mostly match AI-content channels, whose viewers
     do not buy video tools, so they are left out;
-  * mainLanguage is unreliable for bilingual channels; content screening has
-    to confirm language.
+  * mainLanguage follows a channel's titles, so channels that title in English
+    but speak another language pass it; the spoken-language gate
+    (rpi.qualification.language_gate) drops them before any paid research.
 Values inside one filter are ORed; filters are ANDed.
 
 The outside-range presets cover the sizes the main presets leave out (3k-10k

@@ -33,6 +33,7 @@ class Capability(str, Enum):
     AUTHORIZED_ANALYTICS = "get_authorized_analytics"
     USAGE_COSTS = "get_usage_costs"
     AUDIENCE_RESEARCH = "research_audience"
+    VIDEO_LANGUAGES = "get_video_languages"
 
 
 class ResultStatus(str, Enum):
@@ -173,6 +174,15 @@ class Transcript(BaseModel):
     text: str
     segments: list[dict[str, Any]] = Field(default_factory=list)
     is_auto_generated: Optional[bool] = None
+    provenance: Provenance
+
+
+class VideoLanguages(BaseModel):
+    """The spoken language each recent upload declares (YouTube `defaultAudioLanguage`,
+    newest first; None where the uploader set none)."""
+
+    platform_account_id: str
+    languages: list[Optional[str]] = Field(default_factory=list)
     provenance: Provenance
 
 

@@ -1,10 +1,14 @@
 """
 Per-creator research pipeline (funnel stages 2-5).
 
-  screen()  stage 2: recent content → sponsorship evidence → niche
-            classification → risk screen → audience fit → score
-  deep()    stages 3-4: demographics, provider sponsorship history,
-            selective transcripts, re-classification, contacts → re-score
+  screen()  stage 2: spoken-language gate → recent content → sponsorship
+            evidence → niche classification → risk screen → audience fit → score
+  deep()    stages 3-4: spoken-language gate → demographics, provider
+            sponsorship history, selective transcripts, re-classification,
+            contacts → re-score
+
+The spoken-language gate (rpi.qualification.language_gate) is free and runs
+before any CreatorDB call; it is cached, so repeating it costs nothing.
 
 Every paid call goes through the value gate and the provider gateway (budget,
 cache, metering). Derived analysis runs only on data whose provider policy
@@ -34,6 +38,7 @@ from rpi.enrichment.value_gate import CreatorState, evaluate as gate
 from rpi.providers.base import Capability
 from rpi.providers.gateway import CallContext, ProviderGateway
 from rpi.providers.registry import ProviderRegistry
+from rpi.qualification import language_gate
 from rpi.qualification.scoring import QualificationInput, Sourced, score as qualification_score
 from rpi.sponsorship_intelligence.detection import Competitor, detect_sponsorships
 from rpi.storage.creators import record_audience, record_contacts, record_content
@@ -133,6 +138,9 @@ class ResearchService:
             account = await self._account(conn, creator_id)
             if not account:
                 return {"creator_id": str(creator_id), "error": "no YouTube account on record"}
+            rejected = await self._language_gate(conn, creator_id, account, ctx, actor, stage=2)
+            if rejected:
+                return rejected
             result, note = await self._paid(conn, creator_id, Capability.CREATOR_CONTENT, CONTENT_PREFERENCE, account, ctx=ctx)
             if note:
                 notes.append(note)
@@ -154,6 +162,10 @@ class ResearchService:
             st = await self.state(conn, creator_id)
             if st.recommendation not in ("recommend", "investigate"):
                 return {"creator_id": str(creator_id), "error": f"not qualified for deep analysis (recommendation={st.recommendation})"}
+            rejected = await self._language_gate(conn, creator_id, await self._account(conn, creator_id), ctx, actor,
+                                                 stage=3)
+            if rejected:
+                return rejected
             await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 3), updated_at = NOW() WHERE id = $1", creator_id)
             if st.pipeline_status == Status.PRELIMINARY_QUALIFIED.value:
                 await transition(conn, creator_id, Status.DEEP_ANALYSIS, actor=actor, reason="stage 3 analysis")
@@ -199,6 +211,29 @@ class ResearchService:
             await audit(conn, actor, "research.deep", "creator", creator_id,
                         {"recommendation": qual.get("recommendation"), "notes": notes[:8]})
         return {"creator_id": str(creator_id), "stage": 4, "qualification": qual, "notes": notes}
+
+    async def language_check(self, creator_id, ctx: CallContext, actor: str = "system") -> dict:
+        """Free spoken-language check alone (no CreatorDB credits); disqualifies a
+        creator whose recent videos are mostly in another language."""
+        ctx.creator_id = str(creator_id)
+        async with self.pool.acquire() as conn:
+            account = await self._account(conn, creator_id)
+            verdict = await language_gate.check(self.gateway, self.registry, account, ctx)
+            if verdict and verdict.rejected:
+                await language_gate.disqualify(conn, creator_id, verdict, actor)
+        return {"creator_id": str(creator_id), "verdict": verdict.verdict if verdict else "not_checked",
+                "detail": verdict.detail if verdict else "no YouTube channel or the YouTube Data API is unavailable",
+                "declared_languages": verdict.declared if verdict else {}}
+
+    async def _language_gate(self, conn, creator_id, account: Optional[str], ctx: CallContext, actor: str,
+                             stage: int) -> Optional[dict]:
+        """A result that stops research when the channel does not speak English; None to continue."""
+        verdict = await language_gate.check(self.gateway, self.registry, account, ctx)
+        if not (verdict and verdict.rejected):
+            return None
+        await language_gate.disqualify(conn, creator_id, verdict, actor)
+        return {"creator_id": str(creator_id), "stage": stage, "notes": [verdict.detail],
+                "qualification": {"recommendation": language_gate.RECOMMENDATION, "reasons": [verdict.detail]}}
 
     # ------------------------------------------------------------------
     async def _content_rows(self, conn, creator_id) -> list[dict]:
