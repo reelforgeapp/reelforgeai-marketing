@@ -8,8 +8,8 @@ Base path `https://<host>/rpi/api/v1`, header `X-RPI-Key`. UI at `https://<host>
 The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopilot/run`) queues one now. Each run:
 
 1. Drafts outreach with the reviewed template (never Claude) for every recommended creator who has a stored email
-   and has never had an RPI draft. It skips suppressed creators and those Partner Scout emailed within the contact
-   spacing.
+   and has never had an RPI draft. It skips suppressed creators, those Partner Scout emailed within the contact
+   spacing, and those the partnership bot is in conversation with (`RPI_EXTERNAL_CONVERSATION_DAYS`, default 180).
 2. With *Approve its own drafts* on, approves the drafts it wrote that pass validation (`approved_by` is
    `autopilot:rpi`). With it off, they wait in Outreach for a person. A draft a person edited is never approved
    by the autopilot; an approver has to approve it.
@@ -27,8 +27,10 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
 5. Drafts, approves and schedules again for creators the research recommended.
 
 Sending is unchanged: `rpi_send_scheduled` sends due drafts through every send rule. Autopilot never reads replies
-and never sends follow-ups, so each creator gets at most one autopilot email. Answer replies from the inbox and
-move the creator to `replied` in the CRM. Alerts appear when the allowance is used up, when every preset has been
+and never sends follow-ups, so each creator gets at most one autopilot email. Replies land in the
+marketing@reelforgeai.io inbox, where the partnership bot (reelforge-backend `scripts/partnership-bot`, daily at
+14:00 UTC) answers them. The bot reports its contacts to RPI after each run, which marks `replied` creators and
+keeps RPI from cold-emailing anyone the bot is talking to. Alerts appear when the allowance is used up, when every preset has been
 searched, and when a research job fails. A failed autopilot job is canceled, not resumed (`/jobs/{id}/resume`
 refuses autopilot jobs), because its credit cap belonged to that run.
 

@@ -37,6 +37,7 @@ from rpi.administration.jobs import create_job, run_job
 from rpi.api.serialize import jsonb
 from rpi.core.audit import audit
 from rpi.crm.contact_history import partner_scout_history
+from rpi.crm.external_conversations import conversation as external_conversation
 from rpi.crm.suppression import is_suppressed
 from rpi.outreach import service as outreach
 from rpi.outreach.drafts import draft_key
@@ -155,6 +156,11 @@ async def _draft_new(conn, ctx, now: datetime, summary: dict) -> None:
         reason = await is_suppressed(conn, email=email, creator_id=c["id"])
         if reason:
             summary["skipped"].append(f"{name}: {reason}")
+            continue
+        talking = await external_conversation(conn, c["id"], email=email, now=now,
+                                              days=ctx.settings.rpi_external_conversation_days)
+        if talking:
+            summary["skipped"].append(f"{name}: {talking.summary()}")
             continue
         prior = await partner_scout_history(conn, c["id"], email=email)
         if prior and prior.last_contacted_at and prior.last_contacted_at > now - timedelta(days=days):

@@ -1,5 +1,19 @@
 # RPI changelog
 
+## 0.2.3 — 2026-10-26
+
+* **Partnership bot conversations** (migration `009_rpi_external_conversations`, `rpi.crm.external_conversations`).
+  The partnership bot in reelforge-backend reads and answers the marketing@reelforgeai.io inbox. After each run it
+  reports every sender to `POST /crm/external-contacts` (ingest role): address, name, YouTube handles or channel
+  ids, and message dates, with no message content. RPI uses that in three places:
+  * The send gate refuses, and the autopilot does not draft for, a creator the bot exchanged email with in the last
+    `RPI_EXTERNAL_CONVERSATION_DAYS` days (default 180). Matching is by any stored email, the draft's address, a
+    YouTube handle or a channel id. This came up after the bot and RPI were both about to email zapiwala ai and
+    NyesWorldTV.
+  * A creator who writes to the inbox after an RPI email gets a `replied` event on that email and moves from
+    `contacted` to `replied`.
+  * The creator page shows the conversation.
+
 ## 0.2.2 — 2026-10-26
 
 * **Outside-range discovery presets** (migration `008_rpi_outside_range_presets`): `outside_range_small`
