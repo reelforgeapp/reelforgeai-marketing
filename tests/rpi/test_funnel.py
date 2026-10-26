@@ -41,3 +41,30 @@ async def test_funnel_skips_imported_and_unqualified_creators(pool):
     assert status == "succeeded"
     assert research.screened == [str(qualified)]
     assert {str(imported), str(manual), str(held_back)}.isdisjoint(research.screened)
+
+
+async def test_funnel_retries_interrupted_deep_analysis(pool):
+    class RecordingDeep(RecordingResearch):
+        def __init__(self):
+            super().__init__()
+            self.deep_ids: list[str] = []
+
+        async def deep(self, creator_id, ctx, actor):
+            self.deep_ids.append(str(creator_id))
+            return {"qualification": {"recommendation": "recommend"}, "notes": []}
+
+    async with pool.acquire() as conn:
+        async def scored(name, status, stage, recommendation):
+            cid = await conn.fetchval(
+                "INSERT INTO rpi_creators (display_name, pipeline_status) VALUES ($1, $2) RETURNING id", name, status)
+            await conn.execute("""INSERT INTO rpi_qualification_scores (creator_id, scoring_version, stage, overall,
+                                      recommendation) VALUES ($1, 'test', $2, 0.8, $3)""", cid, stage, recommendation)
+            return cid
+        waiting = await scored("Screened, waiting", "preliminary_qualified", 2, "recommend")
+        interrupted = await scored("Crashed mid-analysis", "deep_analysis", 2, "recommend")  # e.g. Trainer1300
+        await scored("Analyzed, not recommended", "deep_analysis", 3, "investigate")
+        job_id = await create_job(conn, "funnel", {}, "test")
+    research = RecordingDeep()
+    status, _ = await _funnel(pool, research, CallContext(job_id=job_id), {}, StageSizes(), "test", job_id,
+                              {"screen": 10, "analyze": 5})
+    assert status == "succeeded" and sorted(research.deep_ids) == sorted([str(waiting), str(interrupted)])

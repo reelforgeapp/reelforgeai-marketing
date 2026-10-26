@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from rpi.administration.jobs import create_job, run_job
+from rpi.administration.jobs import FAILED, create_job, run_job
 from rpi.api.serialize import jsonb
 from rpi.core.audit import audit
 from rpi.crm.contact_history import partner_scout_history
@@ -308,6 +308,13 @@ async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
         "credits": str(spent - used), "stopped": progress.get("stopped"),
     }
     summary["credits_used_7d"] = str(spent)
+    failed = [f"{cid}: {v}" for stage in ("screen", "deep", "contacts")
+              for cid, v in ((progress.get(stage) or {}).get("results") or {}).items() if str(v).startswith(FAILED)]
+    if failed:
+        summary["research"]["failed"] = failed[:10]
+        async with pool.acquire() as conn:
+            await _alert(conn, f"Autopilot research skipped {len(failed)} creator(s) after an error ({failed[0][:160]}); "
+                               "deep analysis retries them on the next run.", "creator_failed", now)
 
 
 async def _advance_cursor(conn, row: dict, preset: Optional[str], disc: dict, now: datetime) -> None:

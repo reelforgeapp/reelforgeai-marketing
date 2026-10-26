@@ -1,5 +1,18 @@
 # RPI changelog
 
+## 0.2.8 — 2026-10-26
+
+* **Autopilot crash fixed.** The 07:30 ET run on 2026-10-26 stopped in deep analysis with "'str' object has no
+  attribute 'get'": Claude returned part of its classification as JSON text instead of an object. It had spent 86
+  credits, drafted nothing, and left Trainer1300 half-analyzed.
+  * The classifier reads JSON-text objects and arrays from Claude. A response with no usable video labels counts
+    as a failed call, so keyword rules decide instead of a confident zero-relevance verdict.
+  * One creator's error no longer stops a research job: it is recorded as `failed: ...`, listed in the autopilot
+    summary with an alert, and the job continues.
+  * Saving progress after each creator keeps the job's other stages; before, a deep-stage save overwrote the
+    discovery progress, so a failure lost the page it had searched.
+  * The funnel retries deep analysis for creators left in `deep_analysis` with only a screening score.
+
 ## 0.2.7 — 2026-10-26
 
 * **Spoken-language gate** (`rpi.qualification.language_gate`). CreatorDB labels channels by their titles, so
