@@ -17,6 +17,7 @@ from rpi.api.context import RPIContext
 from rpi.api.deps import get_ctx, require
 from rpi.api.serialize import clean, jsonb
 from rpi.core.audit import audit
+from rpi.crm import external_conversations as external
 from rpi.crm import suppression
 from rpi.crm.pipeline import Status, TransitionError, transition
 from rpi.financial_ledger.ledger import add_entry
@@ -331,6 +332,36 @@ async def crm_board(ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(r
     for r in rows:
         board[r["pipeline_status"]].append(dict(r))
     return clean(board)
+
+
+class ExternalContact(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    name: Optional[str] = Field(default=None, max_length=200)
+    is_partner: bool = True
+    handles: list[str] = Field(default_factory=list, max_length=20)
+    channel_urls: list[str] = Field(default_factory=list, max_length=20)
+    first_inbound_at: Optional[datetime] = None
+    last_inbound_at: Optional[datetime] = None
+    last_outbound_at: Optional[datetime] = None
+
+
+class ExternalContactsBody(BaseModel):
+    source: str = Field(pattern=f"^{external.SOURCE_BOT}$")
+    contacts: list[ExternalContact] = Field(max_length=5000)
+
+
+@router.post("/crm/external-contacts")
+async def external_contacts(body: ExternalContactsBody, ctx: RPIContext = Depends(get_ctx),
+                            p: Principal = Depends(require("ingest"))):
+    """The partnership bot reports who it is in conversation with (addresses, channel ids,
+    message dates; no content). RPI stops cold outreach to them and marks replies to RPI emails."""
+    async with ctx.pool.acquire() as conn:
+        async with conn.transaction():
+            n = await external.upsert(conn, body.source, [c.model_dump() for c in body.contacts])
+            replies = await external.mark_replies(conn, body.source, actor=p.actor)
+            await audit(conn, p.actor, "crm.external_contacts_synced", "external_contacts", None,
+                        {"source": body.source, "contacts": n, "replies_marked": len(replies)})
+    return {"upserted": n, "replies_marked": replies}
 
 
 class NoteBody(BaseModel):

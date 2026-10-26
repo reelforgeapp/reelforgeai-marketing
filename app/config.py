@@ -163,6 +163,8 @@ class Settings(BaseSettings):
     rpi_send_timezone: str = Field(default="America/New_York")
     rpi_send_window: str = Field(default="09:00-17:00")
     rpi_send_weekdays_only: bool = Field(default=True)
+    # RPI never cold-emails a creator the partnership bot exchanged email with this recently.
+    rpi_external_conversation_days: int = Field(default=180)
     # Email signature for RPI outreach (name and address come from Outreach settings).
     rpi_signature_title: str = Field(default="")  # e.g. "Founder & CEO"
     rpi_signature_website: str = Field(default="https://reelforgeai.io")

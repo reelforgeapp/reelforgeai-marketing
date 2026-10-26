@@ -24,8 +24,10 @@
 * Comment-level buyer-intent analysis is not implemented. Buyer intent is classified from creator content.
 * Email verification (Bouncer/Clearout/Hunter, already in this repo) is not yet wired into RPI contacts;
   contacts show `unverified` unless a hard bounce marks them undeliverable.
-* Reply detection is not automated: Brevo transactional sends do not report replies. Operators move creators to
-  `replied` manually. For the same reason the autopilot sends no follow-ups.
+* Replies are detected through the partnership bot, which reads the inbox once a day (14:00 UTC). A creator is
+  marked `replied` when they write in after an RPI email. That shows they wrote, not what they said, and anything
+  they send before the next bot run is not yet visible. The autopilot sends no follow-ups; the bot answers people
+  who write in.
 * Autopilot discovery stops when every preset has been paged through (an alert says so); it does not invent new
   search criteria. CreatorDB adds creators over time, so clearing `discovery_cursor` later can find new ones.
 * Payment fees are estimated (2.9% + $0.30) and dispute fees are estimated ($15); balance-transaction fees are

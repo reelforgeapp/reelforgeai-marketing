@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from rpi.compliance.policies import get_policy
 from rpi.crm.contact_history import partner_scout_history
+from rpi.crm.external_conversations import conversation as external_conversation
 from rpi.core.provenance import Provenance
 from rpi.identity.resolver import normalize_email, normalize_handle
 from rpi.providers.base import (
@@ -208,8 +209,10 @@ async def creator_profile(conn, creator_id) -> Optional[dict[str, Any]]:
         """SELECT * FROM rpi_creator_identity_matches WHERE creator_a = $1 OR creator_b = $1 ORDER BY created_at DESC""",
         creator_id)
     prior = await partner_scout_history(conn, creator_id)
+    talking = await external_conversation(conn, creator_id)
     return {
         "partner_scout_history": prior.as_dict() if prior else None,
+        "external_conversation": talking.as_dict() if talking else None,
         "creator": dict(creator),
         "accounts": [dict(a) for a in accounts],
         "snapshots": [dict(s) for s in snapshots],

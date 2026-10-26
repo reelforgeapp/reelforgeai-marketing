@@ -44,7 +44,7 @@ async def db_pool():
         await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
         await conn.execute((ROOT / "database" / "schema.sql").read_text())
         for migration in ("005_rpi_core.sql", "006_rpi_scheduled_sends.sql", "007_rpi_autopilot.sql",
-                          "008_rpi_outside_range_presets.sql"):
+                          "008_rpi_outside_range_presets.sql", "009_rpi_external_conversations.sql"):
             await conn.execute((ROOT / "database" / "migrations" / migration).read_text())
         from scripts.rpi_migrate import seed
 

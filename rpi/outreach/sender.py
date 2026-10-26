@@ -45,6 +45,7 @@ import structlog
 from app.config import get_settings
 from rpi.core.audit import audit
 from rpi.crm.contact_history import partner_scout_history
+from rpi.crm.external_conversations import conversation as external_conversation
 from rpi.crm.pipeline import OUTREACH_ELIGIBLE, Status, transition
 from rpi.crm.suppression import is_suppressed
 from rpi.outreach.drafts import regrounding_from_row
@@ -242,6 +243,10 @@ async def check_gates(conn, draft: dict, contact: Optional[dict], settings_row: 
     )
     if recent:
         reasons.append(f"already contacted within {days} days")
+    talking = await external_conversation(conn, draft["creator_id"], email=email,
+                                          days=get_settings().rpi_external_conversation_days)
+    if talking:
+        reasons.append(talking.summary() + "; RPI does not cold-email creators the bot is talking to")
     prior = await partner_scout_history(conn, draft["creator_id"], email=email)
     if prior and prior.last_contacted_at and prior.last_contacted_at > datetime.now(timezone.utc) - timedelta(days=days):
         reasons.append(f"Partner Scout emailed this creator on {prior.last_contacted_at.date().isoformat()}, "

@@ -228,6 +228,8 @@ const views = {
         card("Score / confidence", q ? `${(q.overall ?? 0).toFixed?.(2) ?? q.overall} / ${Number(q.confidence).toFixed(2)}` : "—")),
       p.partner_scout_history ? h("div", { class: "notice" }, p.partner_scout_history.summary +
         ". Drafts for this creator are written as a follow-up.") : null,
+      p.external_conversation ? h("div", { class: "notice" }, p.external_conversation.summary +
+        ". RPI will not cold-email them; continue the conversation from the inbox.") : null,
       q?.components?.commercial_fit?.flags?.length
         ? h("div", { class: "notice" }, q.components.commercial_fit.flags.map(f => f[0].toUpperCase() + f.slice(1)).join("; ")) : null,
       panel("Identity and channels", table([{ label: "Platform", key: "platform" }, { label: "Account id", key: "platform_account_id" },
