@@ -18,9 +18,9 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
    off) get the next free day first. A day's count uses messages actually sent that day plus those scheduled. A
    draft whose schedule was cancelled with a reason is left alone.
 4. Researches only when fewer than *Keep this many messages waiting* are scheduled or awaiting approval: one page of
-   the current preset (`quality`, then `quality_broad`, then the outside-range presets `outside_range_small` and
-   `outside_range_large` for 3k–10k and 150k–500k subscribers with stricter relevance), continuing after the last
-   page it searched, then the funnel
+   the current preset (`english_based`, then `english_based_small` and `english_based_large` for 3k–10k and
+   150k–500k subscribers with stricter relevance; all three only find creators who live in the US, UK, Canada,
+   Australia, New Zealand or Ireland), continuing after the last page it searched, then the funnel
    (*Screen per run*, *Deep-analyze per run*). The provider gateway refuses any CreatorDB call that would take the
    job past what is left of *Weekly credit allowance* over the last 7 days; USD budgets still apply. An allowance of
    0 turns research off.
@@ -93,9 +93,12 @@ results are never re-bought (freshness windows in `rpi/enrichment/value_gate.py`
 
 Search relevance limits, from live tests on 2026-10-25: CreatorDB niches are hashtag-derived and noisy, the
 `mainLanguage` label misses many bilingual channels, and hashtags such as `#facelessyoutube` also match channels
-that publish AI content rather than teach it. Screening the recent videos is what separates them. Use
-`quality_broad` (topics + niches, including income niches) for a wider pool, or `preset: "none"` to search
-with only the fields you send.
+that publish AI content rather than teach it. Screening the recent videos is what separates them. The default
+preset `english_based` also requires the creator to live in an English-speaking country, because CreatorDB's
+audience-country filter checks only the largest country (2026-10-31: the remaining pool contained none of the creators
+the 50% audience gate had rejected). Use `quality` (same filters without the creator's country; almost three times the pool, but
+12 of the 27 checked creators among its first 100 failed the audience gate) or `quality_broad` (topics + niches, including income niches) for a wider pool, or
+`preset: "none"` to search with only the fields you send.
 
 ## Daily checks (5 minutes)
 

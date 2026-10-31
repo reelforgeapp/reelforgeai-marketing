@@ -30,8 +30,8 @@ MIGRATIONS = ROOT / "database" / "migrations"
 # Applied in order; each file is idempotent.
 UP = [MIGRATIONS / "005_rpi_core.sql", MIGRATIONS / "006_rpi_scheduled_sends.sql", MIGRATIONS / "007_rpi_autopilot.sql",
       MIGRATIONS / "008_rpi_outside_range_presets.sql", MIGRATIONS / "009_rpi_external_conversations.sql",
-      MIGRATIONS / "010_rpi_total_views.sql"]
-DOWN = [MIGRATIONS / "010_rpi_total_views_down.sql", MIGRATIONS / "009_rpi_external_conversations_down.sql", MIGRATIONS / "008_rpi_outside_range_presets_down.sql", MIGRATIONS / "007_rpi_autopilot_down.sql",
+      MIGRATIONS / "010_rpi_total_views.sql", MIGRATIONS / "011_rpi_english_based_presets.sql"]
+DOWN = [MIGRATIONS / "011_rpi_english_based_presets_down.sql", MIGRATIONS / "010_rpi_total_views_down.sql", MIGRATIONS / "009_rpi_external_conversations_down.sql", MIGRATIONS / "008_rpi_outside_range_presets_down.sql", MIGRATIONS / "007_rpi_autopilot_down.sql",
         MIGRATIONS / "006_rpi_scheduled_sends_down.sql",
         MIGRATIONS / "005_rpi_core_down.sql"]
 

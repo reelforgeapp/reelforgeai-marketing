@@ -40,6 +40,12 @@ bounds → `totalSubscribers`, `avgRecentVideosViews`, `medianRecentVideosViews`
 reported as unapplied; enforced criteria are returned as `applied_criteria`, and `totalResults` as
 `total_available`. Results sort by `medianRecentVideosViews` (the API default is alphabetical). Brand-sponsorship
 criteria return UNSUPPORTED rather than unrelated creators. Presets and their tuning: `rpi/discovery/presets.py`
+
+Audience geography (live probe, 2026-10-31, 6 credits): `mainAudienceLocation` is the single largest modeled
+audience country; CreatorDB has no filter on a country's share. The creator's own `country` (alpha-3, blank when
+unknown) is the usable proxy: on the `quality` criteria it cut the pool from 215 to 78 creators, none of them among
+the 13 the 50% English-speaking-audience gate had rejected. `relatedCreators` (lookalike search) returned
+`400 VALIDATION_ERROR` with `=` and with `in`, combined with the usual gates (no credits charged); it is not used.
 and OPERATIONS_RUNBOOK.md → Credit-efficient discovery.
 
 **Verification:** `python -m scripts.rpi_verify_creatordb --channel UC…` calls `/usage` (free) and one profile

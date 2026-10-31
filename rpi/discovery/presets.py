@@ -24,14 +24,26 @@ Values inside one filter are ORed; filters are ANDed.
 The outside-range presets cover the sizes the main presets leave out (3k-10k
 and 150k-500k subscribers), because size is a soft preference: an exceptionally
 relevant creator should not be missed for size alone. They are stricter on
-relevance (only the core segment hashtags) and on audience response, and the
-autopilot searches them only after the main presets are exhausted.
+relevance (only the core segment hashtags) and on audience response.
+
+Audience geography, measured with a live probe on 2026-10-31: `mainAudienceLocation`
+is only the single largest audience country, so a channel with 30% US viewers and
+the rest in Brazil and India passes it, and half of the creators deep analysis
+paid to check failed the 50% English-speaking-audience gate. CreatorDB has no
+filter on a country's share. The creator's own country is the cheap proxy that
+works: adding `country` in US/UK/CA/AU/NZ/IE to the quality preset cut its pool
+from 215 to 78 creators, and those 78 include none of the 13 creators the gate
+has rejected and 8 of the 17 it passed. Creators with no country on CreatorDB
+are left out. The autopilot searches only these `english_based` presets (11
+filters, two credits per page); the others stay for manual runs.
+`relatedCreators` (lookalike search) returned VALIDATION_ERROR with `=` and `in`.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
+from rpi.audience_intelligence.fit import ENGLISH_SPEAKING_COUNTRIES
 from rpi.providers.base import CreatorSearchCriteria
 
 EDUCATOR_HASHTAGS = (
@@ -75,8 +87,8 @@ RELEVANCE_FIELDS = ("keywords", "topics", "niches")
 
 _GATES: dict[str, Any] = {
     "languages": ["en"],
-    # Where the viewers are, not where the creator lives (often blank).
-    "audience_countries": ["US", "CA", "GB", "AU"],
+    # The largest audience country only; English-speaking share is checked in deep analysis.
+    "audience_countries": list(ENGLISH_SPEAKING_COUNTRIES),
     "min_subscribers": 10_000,
     "max_subscribers": 150_000,
     "min_median_views": 2_000,
@@ -100,10 +112,19 @@ PRESETS: dict[str, dict[str, Any]] = {
                             "min_subscribers": 150_001, "max_subscribers": 500_000,
                             "min_median_views": 10_000, "min_engagement_rate": 0.03},
 }
-# Autopilot search order: the outside-range presets come last, so they are
-# searched only after both main presets are exhausted.
-AUTOPILOT_PRESETS = ("quality", "quality_broad", "outside_range_small", "outside_range_large")
-DEFAULT_PRESET = "quality"
+# The same presets for creators who live in an English-speaking country (11
+# filters: two credits per page). quality_broad has no counterpart: its niches
+# are noisy and its income niches draw audiences outside these countries.
+_ENGLISH_BASED = {"countries": list(ENGLISH_SPEAKING_COUNTRIES)}
+PRESETS |= {
+    "english_based": {**PRESETS["quality"], **_ENGLISH_BASED},
+    "english_based_small": {**PRESETS["outside_range_small"], **_ENGLISH_BASED},
+    "english_based_large": {**PRESETS["outside_range_large"], **_ENGLISH_BASED},
+}
+# Autopilot search order: the outside-range sizes come last, so they are
+# searched only after the main preset is exhausted.
+AUTOPILOT_PRESETS = ("english_based", "english_based_small", "english_based_large")
+DEFAULT_PRESET = "english_based"
 
 
 def apply_preset(criteria: CreatorSearchCriteria, name: Optional[str]) -> CreatorSearchCriteria:

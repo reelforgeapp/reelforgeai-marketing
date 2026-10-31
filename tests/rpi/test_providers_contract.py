@@ -218,7 +218,7 @@ def test_quality_preset_is_one_credit_of_filters():
     assert len(body["filters"]) == 10 and search_credits(len(body["filters"])) == 1
     assert "#aitools" in f[("hashtags", "in")] and "#faceless" not in f[("hashtags", "in")]
     assert f[("topics", "in")][0] == "id_ai_ScienceTechnology_youtube" and ("niches", "in") not in f
-    assert f[("mainAudienceLocation", "in")] == ["AUS", "CAN", "GBR", "USA"]
+    assert f[("mainAudienceLocation", "in")] == ["AUS", "CAN", "GBR", "IRL", "NZL", "USA"]
     assert f[("medianRecentVideosViews", ">")] == 1_999 and f[("contentsIn30Days", ">")] == 1
     assert f[("avgRecentVideosEngagementRate", ">")] == pytest.approx(0.01995)
     assert f[("hasEmail", "=")] is True and body["sortBy"] == "medianRecentVideosViews"
@@ -226,6 +226,19 @@ def test_quality_preset_is_one_credit_of_filters():
     broad = build_search_body(apply_preset(CreatorSearchCriteria(), "quality_broad"))[0]["filters"]
     assert len(broad) == 10 and "id_youtubeshorts_Education" not in next(x["value"] for x in broad if x["filterName"] == "niches")
     assert adapter().estimate_cost(Capability.SEARCH_CREATORS, criteria=criteria.model_copy(update={"limit": 25})).units == 1
+
+
+def test_english_based_presets_add_the_creator_country_to_each_search():
+    for name, base in (("english_based", "quality"), ("english_based_small", "outside_range_small"),
+                       ("english_based_large", "outside_range_large")):
+        criteria = apply_preset(CreatorSearchCriteria(), name)
+        body, unapplied, applied = build_search_body(criteria)
+        base_filters = build_search_body(apply_preset(CreatorSearchCriteria(), base))[0]["filters"]
+        extra = [x for x in body["filters"] if x not in base_filters]
+        assert extra == [{"filterName": "country", "op": "in", "value": ["AUS", "CAN", "GBR", "IRL", "NZL", "USA"]}]
+        assert len(body["filters"]) == 11 and search_credits(len(body["filters"])) == 2 and not unapplied
+        assert "countries" in applied
+    assert adapter().estimate_cost(Capability.SEARCH_CREATORS, criteria=criteria.model_copy(update={"limit": 50})).units == 2
 
 
 def test_outside_range_presets_cover_the_gaps_with_stricter_relevance():
@@ -247,17 +260,20 @@ def test_outside_range_presets_cover_the_gaps_with_stricter_relevance():
     assert bands["outside_range_small"][3] == pytest.approx(0.03995) and bands["outside_range_large"][3] == pytest.approx(0.02995)
 
 
-def test_autopilot_reaches_outside_range_presets_only_after_the_main_ones():
+def test_autopilot_searches_only_english_based_creators_main_size_first():
     from rpi.administration.autopilot import CURSOR_END, current_preset
-    from rpi.discovery.presets import AUTOPILOT_PRESETS
+    from rpi.discovery.presets import AUTOPILOT_PRESETS, DEFAULT_PRESET
 
-    row = {"presets": list(AUTOPILOT_PRESETS), "discovery_cursor": {}}
-    assert current_preset(row) == ("quality", None)
-    row["discovery_cursor"] = {"quality": CURSOR_END, "quality_broad": "50"}
-    assert current_preset(row) == ("quality_broad", "50")
-    row["discovery_cursor"] = {"quality": CURSOR_END, "quality_broad": CURSOR_END}
-    assert current_preset(row) == ("outside_range_small", None)
-    row["discovery_cursor"].update(outside_range_small=CURSOR_END, outside_range_large=CURSOR_END)
+    assert all(apply_preset(CreatorSearchCriteria(), p).countries for p in AUTOPILOT_PRESETS)
+    assert DEFAULT_PRESET == "english_based"
+    # Cursors of the presets searched before 0.2.12 do not carry over.
+    row = {"presets": list(AUTOPILOT_PRESETS), "discovery_cursor": {"quality": "175"}}
+    assert current_preset(row) == ("english_based", None)
+    row["discovery_cursor"] = {"english_based": "50"}
+    assert current_preset(row) == ("english_based", "50")
+    row["discovery_cursor"] = {"english_based": CURSOR_END}
+    assert current_preset(row) == ("english_based_small", None)
+    row["discovery_cursor"].update(english_based_small=CURSOR_END, english_based_large=CURSOR_END)
     assert current_preset(row) == (None, None)
 
 
@@ -268,6 +284,7 @@ def test_preset_yields_to_explicit_fields():
     assert mine.min_median_views == 2_000 and mine.require_email
     assert apply_preset(CreatorSearchCriteria(), "quality_broad").niches and not apply_preset(CreatorSearchCriteria(), "quality").niches
     assert apply_preset(CreatorSearchCriteria(), "none").niches == []
+    assert apply_preset(CreatorSearchCriteria(countries=[]), "english_based").countries == []
     with pytest.raises(ValueError):
         apply_preset(CreatorSearchCriteria(), "bogus")
 
