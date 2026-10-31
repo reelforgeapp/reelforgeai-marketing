@@ -10,6 +10,14 @@ computed over the remaining components and its confidence drops accordingly.
 Size targets (10k-150k subscribers, $300-$1,000 fee) are soft preferences:
 a highly relevant creator outside the band is penalized slightly, never
 excluded.
+
+Audience geography is a gate, not a weight: ReelForge sells USD
+subscriptions, so a creator is recommended only when at least
+MIN_ENGLISH_AUDIENCE_SHARE of the audience lives in an English-speaking
+country (US, UK, Canada, Australia, New Zealand, Ireland). A known share below
+it rejects the creator whatever the rest of the score says. From deep analysis
+on, an unknown share keeps an otherwise recommended creator at `investigate`:
+English content alone let India- and Nigeria-based channels through.
 """
 
 from __future__ import annotations
@@ -18,8 +26,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-SCORING_VERSION = "qual-2026-10-26.1"
+SCORING_VERSION = "qual-2026-10-30.1"
 SATURATION_MIN_VIDEOS = 5
+MIN_ENGLISH_AUDIENCE_SHARE = 0.5
+GEOGRAPHY_LABEL = "English-speaking countries (US, UK, Canada, Australia, New Zealand, Ireland)"
 
 WEIGHTS = {
     "niche_relevance": 0.40,
@@ -63,6 +73,11 @@ class QualificationInput:
     sponsored_sample: int = 0
     # Median views of sponsored videos / median views of the other recent videos.
     sponsored_view_ratio: Optional[float] = None
+    # Share of the audience in English-speaking countries (value 0-1), from the
+    # best audience country breakdown; None when there is none.
+    english_audience: Optional[Sourced] = None
+    # True from deep analysis on: an unknown share then blocks `recommend`.
+    require_english_audience: bool = False
     preferred_min_subs: int = 10_000
     preferred_max_subs: int = 150_000
     preferred_max_fee: float = 1_000.0
@@ -78,6 +93,8 @@ class QualificationResult:
     missing_data: list[str]
     excluded_sources: list[str]
     reasons: list[str]
+    # Recommended on everything else, held only for want of an audience country breakdown.
+    awaiting_geography: bool = False
 
 
 def _allowed(inp: QualificationInput, provider: Optional[str]) -> bool:
@@ -187,10 +204,28 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
     completeness = weight / sum(WEIGHTS.values())
     confidence = round(completeness * (0.5 + 0.5 * inp.classification_confidence) * (0.6 + 0.4 * inp.icp_completeness), 3)
 
+    geo = inp.english_audience
+    if geo is not None and geo.value is not None and not _allowed(inp, geo.provider):
+        excluded.append(f"audience geography from {geo.provider} (provider policy does not permit derived scoring)")
+        geo = None
+    share = round(geo.value, 3) if geo else None
+    verdict = "unknown" if share is None else "passed" if share >= MIN_ENGLISH_AUDIENCE_SHARE else "failed"
+    components["audience_fit"]["geography"] = {
+        "english_speaking_share": share, "required": MIN_ENGLISH_AUDIENCE_SHARE, "verdict": verdict,
+        "provider": geo.provider if geo else None, "basis": geo.basis if geo else "unavailable",
+    }
+    if share is None and inp.require_english_audience:
+        missing.append("audience geography (a recommendation needs it)")
+
     niche = components["niche_relevance"]["value"]
+    awaiting_geography = False
     if inp.risk_blockers:
         recommendation = "reject_suspect_engagement"
         reasons.extend(f"risk screening: {b}" for b in inp.risk_blockers)
+    elif verdict == "failed":
+        recommendation = "reject_audience_geography"
+        reasons.append(f"{share:.0%} of the audience is in {GEOGRAPHY_LABEL}; "
+                       f"at least {MIN_ENGLISH_AUDIENCE_SHARE:.0%} is required ({geo.provider})")
     elif niche is None:
         recommendation = "needs_data"
         reasons.append("niche relevance unavailable")
@@ -198,7 +233,12 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
         recommendation = "reject_niche_mismatch"
         reasons.append(f"niche relevance {niche:.2f} below 0.25")
     elif overall is not None and overall >= 0.7 and niche >= 0.6 and inp.risk_level != "elevated_review":
-        recommendation = "recommend"
+        if verdict == "unknown" and inp.require_english_audience:
+            recommendation, awaiting_geography = "investigate", True
+            reasons.append(f"audience geography unknown: a recommendation needs at least "
+                           f"{MIN_ENGLISH_AUDIENCE_SHARE:.0%} of the audience in {GEOGRAPHY_LABEL}")
+        else:
+            recommendation = "recommend"
     elif overall is not None and overall >= 0.5:
         recommendation = "investigate"
     else:
@@ -206,4 +246,5 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
     if excluded:
         reasons.append("some inputs excluded by data-licensing policy")
 
-    return QualificationResult(SCORING_VERSION, overall, confidence, recommendation, components, missing, excluded, reasons)
+    return QualificationResult(SCORING_VERSION, overall, confidence, recommendation, components, missing, excluded, reasons,
+                               awaiting_geography)

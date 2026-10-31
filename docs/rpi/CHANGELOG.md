@@ -1,5 +1,21 @@
 # RPI changelog
 
+## 0.2.11 — 2026-10-30
+
+* **Audience geography gate.** A recommendation now needs at least 50% of the audience in an English-speaking
+  country (US, UK, Canada, Australia, New Zealand, Ireland). Below that a creator is rejected
+  (`reject_audience_geography`, `disqualified_reason = audience_outside_english_countries`). From deep analysis on,
+  an unknown share holds an otherwise recommended creator at `investigate`. Before, no creator had a country
+  breakdown (the audience call was off) and the search filter checks only the single largest modeled country, so
+  India-, Nigeria- and Turkey-based channels were recommended and emailed.
+* **Country data only where it decides.** Deep analysis buys the CreatorDB audience breakdown (10 credits) after
+  everything else is scored, and only for creators it would otherwise recommend. `RPI_FETCH_AUDIENCE_DEMOGRAPHICS`
+  now defaults to on.
+* **Disqualified creators are not emailed by the autopilot.** Disqualifying a creator (geography, engagement, niche
+  or spoken language) cancels the schedule of their unsent autopilot-approved drafts; the autopilot neither approves
+  nor reschedules them, and the send gate refuses them. A person's approval stands.
+* Scoring version `qual-2026-10-30.1`; the ICP geography component counts the same six countries.
+
 ## 0.2.10 — 2026-10-26
 
 * **Views-below-subscribers check** (migration `010_rpi_total_views`). Deep analysis now starts with the CreatorDB

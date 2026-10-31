@@ -23,6 +23,10 @@ from typing import Optional
 
 from rpi.core.provenance import MeasurementType
 
+# ReelForge sells USD subscriptions; these are the markets its buyers live in.
+ENGLISH_SPEAKING_COUNTRIES = ("US", "GB", "CA", "AU", "NZ", "IE")
+COUNTRY_ALIASES = {"UK": "GB"}
+
 
 @dataclass(frozen=True)
 class ICP:
@@ -31,7 +35,7 @@ class ICP:
     description: str
     content_labels: tuple[str, ...]
     audience_problems: tuple[str, ...]
-    countries: tuple[str, ...] = ("US", "CA", "GB", "AU")
+    countries: tuple[str, ...] = ENGLISH_SPEAKING_COUNTRIES
     languages: tuple[str, ...] = ("en",)
     age_buckets: tuple[str, ...] = ()
     weights: dict = field(
@@ -112,6 +116,26 @@ def _best_source(evidence: list[AudienceEvidence], dimension: str) -> Optional[A
     return max(candidates, key=lambda e: BASIS_RANK.get(e.measurement, 0))
 
 
+def _country_share(shares: dict[str, float], countries: tuple[str, ...]) -> float:
+    return min(sum(v for k, v in shares.items() if COUNTRY_ALIASES.get(k.upper(), k.upper()) in countries), 1.0)
+
+
+@dataclass
+class GeographyShare:
+    share: float  # 0-1 of the audience in ENGLISH_SPEAKING_COUNTRIES
+    provider: str
+    measurement: MeasurementType
+
+
+def english_speaking_share(audience: list[AudienceEvidence]) -> Optional[GeographyShare]:
+    """Share of the audience in English-speaking countries from the most
+    trusted country breakdown, or None when no breakdown exists."""
+    geo = _best_source(audience, "country")
+    if geo is None:
+        return None
+    return GeographyShare(_country_share(geo.shares, ENGLISH_SPEAKING_COUNTRIES), geo.provider, geo.measurement)
+
+
 def score_icp(
     icp: ICP,
     *,
@@ -141,8 +165,8 @@ def score_icp(
 
     geo = _best_source(audience, "country")
     if geo:
-        share = sum(v for k, v in geo.shares.items() if k.upper() in icp.countries)
-        components.append(ComponentScore("geography", min(share, 1.0), geo.measurement.value,
+        share = _country_share(geo.shares, icp.countries)
+        components.append(ComponentScore("geography", share, geo.measurement.value,
                                          f"{share:.0%} of audience in {', '.join(icp.countries)} ({geo.provider})"))
     else:
         components.append(ComponentScore("geography", None, MeasurementType.UNAVAILABLE.value, "no audience country data"))

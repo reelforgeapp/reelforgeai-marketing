@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from rpi.core.audit import audit
+from rpi.outreach.sender import hold_autopilot_sends
 from rpi.providers.base import Capability
 from rpi.providers.gateway import CallContext, ProviderGateway
 from rpi.providers.registry import ProviderRegistry
@@ -89,4 +90,5 @@ async def disqualify(conn, creator_id, verdict: LanguageVerdict, actor: str) -> 
            WHERE id = $1 AND disqualified_reason IS NULL RETURNING id""", creator_id, DISQUALIFIED_REASON)
     if done:
         await audit(conn, actor, "research.language_rejected", "creator", creator_id, {"detail": verdict.detail})
+        await hold_autopilot_sends(conn, creator_id, f"creator disqualified: {DISQUALIFIED_REASON}")
     return bool(done)

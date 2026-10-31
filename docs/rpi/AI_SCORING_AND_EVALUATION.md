@@ -59,7 +59,29 @@ runs the check alone for chosen creators.
 On 2026-10-26 the check found 6 of the 9 creators waiting to be screened, and 2 of 8 recommended creators, speaking
 Hindi, Ukrainian or Malayalam. 6 of the 24 creators checked declared no language and would pass unchecked.
 
-## Qualification score (`qual-2026-10-26.1`)
+## Audience geography gate
+
+ReelForge sells USD subscriptions, so a creator is recommended only when at least **50% of the audience** lives in
+an English-speaking country: US, UK, Canada, Australia, New Zealand or Ireland. English content is not enough.
+Every discovery run filters CreatorDB on a main audience country of US/CA/GB/AU. That checks only the single
+largest, modeled country, and India-, Nigeria- and Turkey-based channels came through (Grab Akku, NexQ, GenAI with
+Keera, Ademola Joshua, The AI Garage; 2026-10-29). No creator had a country breakdown, because the
+10-credit audience call was off, so geography dropped out of every score.
+
+* The share comes from the most trusted country breakdown (first-party analytics, then CreatorDB
+  `/youtube/audience`, then creator-sent screenshots).
+* A known share below 50% rejects the creator (`reject_audience_geography`, `disqualified_reason =
+  audience_outside_english_countries`) whatever the rest of the score says, at screening or deep analysis.
+* From deep analysis on, an unknown share keeps a creator who would otherwise be recommended at `investigate`
+  (`awaiting_geography`). Unknown is not neutral.
+* Deep analysis buys the breakdown (10 credits) only for those creators, after everything else is scored, so a
+  creator rejected for niche, engagement or a weak score costs nothing extra. `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=false`
+  stops the purchase; such creators then stay at `investigate`.
+* Disqualifying a creator (geography, engagement, niche or spoken language) cancels the schedule of their unsent
+  autopilot-approved drafts, and the send gate refuses them; a person's approval stands.
+* The ICP geography component counts the same six countries.
+
+## Qualification score (`qual-2026-10-30.1`)
 
 | Component | Weight | Source |
 |---|---|---|
@@ -82,16 +104,18 @@ Hindi, Ukrainian or Malayalam. 6 of the 24 creators checked declared no language
   "check exclusivity before outreach: <brand> (paid, <date>)", shown on the creator page, because sponsorship
   contracts often carry a 30–90 day category exclusivity.
 * Confidence = completeness × (0.5 + 0.5 × classification confidence) × (0.6 + 0.4 × ICP completeness).
-* Recommendation: `reject_suspect_engagement` (any `elevated` risk signal, checked first) · `recommend` (overall ≥
-  0.7, niche ≥ 0.6, risk not elevated) · `investigate` (≥ 0.5) · `hold` · `reject_niche_mismatch` (niche < 0.25
-  with classification confidence ≥ 0.6) · `needs_data`. Both rejections set `rpi_creators.disqualified_reason`
-  (`suspect_engagement`, `niche_mismatch`), so the funnel and the autopilot skip the creator; a person can still
-  draft for them.
+* Recommendation: `reject_suspect_engagement` (any `elevated` risk signal, checked first) ·
+  `reject_audience_geography` (under 50% of the audience in English-speaking countries, see above) · `recommend`
+  (overall ≥ 0.7, niche ≥ 0.6, risk not elevated, and from deep analysis on a known English-speaking share of at
+  least 50%) · `investigate` (≥ 0.5, or recommended but for unknown geography) · `hold` · `reject_niche_mismatch`
+  (niche < 0.25 with classification confidence ≥ 0.6) · `needs_data`. The rejections set
+  `rpi_creators.disqualified_reason` (`suspect_engagement`, `audience_outside_english_countries`, `niche_mismatch`),
+  so the funnel and the autopilot skip the creator; a person can still draft for them.
 
 ## Audience fit
 
 Three ICPs (faceless entrepreneurs, small-business marketers, content agencies), scored separately. Components:
-content topics, audience problems, geography (US/CA/GB/AU), language, age. When sources conflict, measured
+content topics, audience problems, geography (US/UK/CA/AU/NZ/IE), language, age. When sources conflict, measured
 first-party data is preferred over third-party modeled estimates, then manual submissions, then content inference.
 Missing data is never imputed; `completeness` shows how much of the profile was evaluable.
 

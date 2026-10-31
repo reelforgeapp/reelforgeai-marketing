@@ -4,9 +4,11 @@ Per-creator research pipeline (funnel stages 2-5).
   screen()  stage 2: spoken-language gate → recent content → sponsorship
             evidence → niche classification → risk screen → audience fit → score
   deep()    stages 3-4: spoken-language gate → channel totals (CreatorDB
-            profile, 2 credits) → demographics, provider sponsorship history,
-            selective transcripts (skipped when the channel has fewer lifetime
-            views than subscribers) → re-classification, contacts → re-score
+            profile, 2 credits) → provider sponsorship history, selective
+            transcripts (skipped when the channel has fewer lifetime views than
+            subscribers) → re-classification → re-score → audience countries
+            (10 credits, only when they are all that stands between the creator
+            and a recommendation) → contacts → re-score
 
 The spoken-language gate (rpi.qualification.language_gate) is free and runs
 before any CreatorDB call; it is cached, so repeating it costs nothing.
@@ -27,7 +29,7 @@ from typing import Optional
 
 import structlog
 
-from rpi.audience_intelligence.fit import AudienceEvidence, score_all
+from rpi.audience_intelligence.fit import AudienceEvidence, english_speaking_share, score_all
 from rpi.audience_intelligence.quality import SnapshotStat, VideoStats, screen as risk_screen
 from rpi.compliance.policies import scoring_allowed
 from rpi.content_intelligence.claude_client import LLM, ModelPrice
@@ -36,6 +38,7 @@ from rpi.core.audit import audit
 from rpi.core.provenance import MeasurementType
 from rpi.crm.pipeline import Status, TransitionError, transition
 from rpi.enrichment.value_gate import CreatorState, evaluate as gate
+from rpi.outreach.sender import hold_autopilot_sends
 from rpi.providers.base import Capability
 from rpi.providers.gateway import CallContext, ProviderGateway
 from rpi.providers.registry import ProviderRegistry
@@ -52,7 +55,8 @@ TRANSCRIPT_PREFERENCE = ("creatordb", "supadata", "fixture")
 
 # Recommendations that disqualify a creator (rpi_creators.disqualified_reason),
 # which keeps them out of the screening queue.
-DISQUALIFYING = {"reject_niche_mismatch": "niche_mismatch", "reject_suspect_engagement": "suspect_engagement"}
+DISQUALIFYING = {"reject_niche_mismatch": "niche_mismatch", "reject_suspect_engagement": "suspect_engagement",
+                 "reject_audience_geography": "audience_outside_english_countries"}
 
 # Paid results that only matter through the qualification score.
 SCORING_INPUTS = {Capability.CREATOR_CONTENT, Capability.AUDIENCE_DEMOGRAPHICS, Capability.SPONSORSHIP_HISTORY,
@@ -64,9 +68,10 @@ class ResearchConfig:
     fast: Optional[ModelPrice]
     deep: Optional[ModelPrice]
     creatordb_scoring_permitted: bool
-    # 10 CreatorDB credits per creator; discovery presets already filter on
-    # the main audience country, so this is off unless an ICP needs detail.
-    fetch_audience_demographics: bool = False
+    # 10 CreatorDB credits per creator, bought only for creators that would be
+    # recommended but for an unknown audience geography. Off, no creator
+    # without a country breakdown can be recommended.
+    fetch_audience_demographics: bool = True
     preferred_min_subs: int = 10_000
     preferred_max_subs: int = 150_000
     preferred_max_fee: float = 1_000.0
@@ -177,18 +182,6 @@ class ResearchService:
                 notes.append("skipped demographics, sponsorship history and transcripts: fewer lifetime views than "
                              "subscribers")
 
-            aud = None
-            if self.config.fetch_audience_demographics and not bought:
-                aud, note = await self._paid(conn, creator_id, Capability.AUDIENCE_DEMOGRAPHICS, CONTENT_PREFERENCE, account,
-                                             ctx=ctx)
-                if note:
-                    notes.append(note)
-            else:
-                notes.append("audience demographics not fetched (RPI_FETCH_AUDIENCE_DEMOGRAPHICS is off)")
-            if aud and aud.data:
-                async with conn.transaction():
-                    await record_audience(conn, creator_id, aud.data)
-
             if not bought:
                 spons, note = await self._paid(conn, creator_id, Capability.SPONSORSHIP_HISTORY, CONTENT_PREFERENCE,
                                                account, ctx=ctx)
@@ -199,6 +192,9 @@ class ResearchService:
                 await self._fetch_transcripts(conn, creator_id, ctx, notes)
             analysis = await self._classify(conn, creator_id, ctx, allow_deep=True, notes=notes)
             qual = await self._qualify(conn, creator_id, analysis, stage=3, notes=notes)
+            if qual.get("awaiting_geography") and not bought:
+                if await self._audience(conn, creator_id, account, ctx, notes):
+                    qual = await self._qualify(conn, creator_id, analysis, stage=3, notes=notes)
 
             if include_contacts and qual.get("recommendation") == "recommend":
                 await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 4) WHERE id = $1", creator_id)
@@ -256,6 +252,23 @@ class ResearchService:
                 await record_snapshot(conn, creator_id, account_row, result.data)
         totals = await self._totals(conn, creator_id)
         return bool(totals and totals["subscribers"] and totals["total_views"] < totals["subscribers"])
+
+    async def _audience(self, conn, creator_id, account: Optional[str], ctx: CallContext, notes: list[str]) -> bool:
+        """Audience demographics (CreatorDB, 10 credits; skipped while a fetch is
+        fresh). True when a breakdown was stored."""
+        if not self.config.fetch_audience_demographics:
+            notes.append("audience demographics not fetched (RPI_FETCH_AUDIENCE_DEMOGRAPHICS is off); "
+                         "a recommendation needs the audience country breakdown")
+            return False
+        aud, note = await self._paid(conn, creator_id, Capability.AUDIENCE_DEMOGRAPHICS, CONTENT_PREFERENCE, account,
+                                     ctx=ctx)
+        if note:
+            notes.append(note)
+        if not (aud and aud.data):
+            return False
+        async with conn.transaction():
+            await record_audience(conn, creator_id, aud.data)
+        return True
 
     async def _totals(self, conn, creator_id) -> Optional[dict]:
         """Latest policy-permitted snapshot carrying lifetime views (migration 010), or None."""
@@ -396,6 +409,7 @@ class ResearchService:
         fits = score_all(video_labels=video_labels, audience_problems=problems, audience=evidence,
                          creator_language=snap["language"] if snap else None)
         best = max((f for f in fits if f.fit is not None), key=lambda f: f.fit, default=None)
+        geo = english_speaking_share(evidence)
 
         allowed_content = [r for r in content if self.allowed(r["provider"])]
         totals = await self._totals(conn, creator_id)
@@ -454,7 +468,10 @@ class ResearchService:
             expected_fee_usd=fee_note,
             risk_level=risk["level"],
             risk_blockers=[s["detail"] for s in risk["signals"] if s["severity"] == "elevated"],
-            scoring_allowed={p: self.allowed(p) for p in {content_provider, snap["provider"] if snap else None} if p},
+            english_audience=Sourced(geo.share, geo.provider, geo.measurement.value) if geo else None,
+            require_english_audience=stage >= 3,
+            scoring_allowed={p: self.allowed(p) for p in {content_provider, snap["provider"] if snap else None,
+                                                          geo.provider if geo else None} if p},
             preferred_min_subs=self.config.preferred_min_subs,
             preferred_max_subs=self.config.preferred_max_subs,
             preferred_max_fee=self.config.preferred_max_fee,
@@ -475,12 +492,16 @@ class ResearchService:
             json.dumps(result.excluded_sources),
         )
         if result.recommendation in DISQUALIFYING:
-            await conn.execute("UPDATE rpi_creators SET disqualified_reason = $2 WHERE id = $1", creator_id,
-                               DISQUALIFYING[result.recommendation])
+            reason = DISQUALIFYING[result.recommendation]
+            await conn.execute("UPDATE rpi_creators SET disqualified_reason = $2 WHERE id = $1", creator_id, reason)
+            held = await hold_autopilot_sends(conn, creator_id, f"creator disqualified: {reason}")
+            if held:
+                notes.append(f"cancelled {held} scheduled autopilot send(s): creator disqualified ({reason})")
         return {
             "overall": result.overall, "confidence": result.confidence, "recommendation": result.recommendation,
             "missing_data": result.missing_data, "excluded_sources": result.excluded_sources, "reasons": result.reasons,
             "risk_level": risk["level"], "best_icp": best.name if best else None,
+            "english_speaking_share": geo.share if geo else None, "awaiting_geography": result.awaiting_geography,
         }
 
     async def _advance_after_screen(self, conn, creator_id, qual: dict, actor: str) -> None:
