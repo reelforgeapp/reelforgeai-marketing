@@ -153,6 +153,14 @@ for 7 days) for `totalViews`; when views are below subscribers it skips demograp
 transcripts and rejects the creator. Real channels have tens to hundreds of lifetime views per subscriber (11–634
 across the 55 scored creators, median 67); Ari Thinks had 0.97.
 
+**Who is checked.** Every creator RPI screens: its own discovery finds, and creators who wrote in. Inbound pitches
+come mostly from paid-review channels, where bought views are common (Ari Thinks and NyesWorldTV both wrote in), so
+the autopilot checks the partnership bot's contacts from the last 90 days that RPI has never screened, up to 10 a
+cycle, most recent first. Their screening also buys lifetime views (2 credits) so bought subscribers are caught
+without deep analysis. A creator the bot reports who is not in RPI yet is added from their YouTube links (a
+channel id, or a handle looked up with one free YouTube Data API quota unit); bare handles are not used, because
+they can name a TikTok or Instagram account.
+
 ## Evaluation benchmark
 
 * Labels: `rpi_benchmark_labels`, imported from a manually reviewed CSV (`docs/rpi/benchmark_template.csv`) with

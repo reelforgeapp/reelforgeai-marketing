@@ -17,14 +17,18 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
    Outreach daily limit per day, 20 minutes apart. Drafts held back past their time (daily limit reached, sending
    off) get the next free day first. A day's count uses messages actually sent that day plus those scheduled. A
    draft whose schedule was cancelled with a reason is left alone.
-4. Researches only when fewer than *Keep this many messages waiting* are scheduled or awaiting approval: one page of
+4. Checks creators who wrote in for bought views: up to 10 of the partnership bot's contacts from the last 90 days
+   that RPI has never screened, most recent first. Each is screened (recent videos, 3 credits) with its lifetime
+   views (2 credits), inside the same weekly allowance. The bot's daily sync adds the ones not yet in RPI from their
+   YouTube links. The run summary lists who was checked and who showed bought engagement.
+5. Researches only when fewer than *Keep this many messages waiting* are scheduled or awaiting approval: one page of
    the current preset (`english_based`, then `english_based_small` and `english_based_large` for 3k–10k and
    150k–500k subscribers with stricter relevance; all three only find creators who live in the US, UK, Canada,
    Australia, New Zealand or Ireland), continuing after the last page it searched, then the funnel
    (*Screen per run*, *Deep-analyze per run*). The provider gateway refuses any CreatorDB call that would take the
    job past what is left of *Weekly credit allowance* over the last 7 days; USD budgets still apply. An allowance of
    0 turns research off.
-5. Drafts, approves and schedules again for creators the research recommended.
+6. Drafts, approves and schedules again for creators the research recommended.
 
 Sending is unchanged: `rpi_send_scheduled` sends due drafts through every send rule. Autopilot never reads replies
 and never sends follow-ups, so each creator gets at most one autopilot email. Replies land in the
@@ -84,7 +88,8 @@ creator for enrichment. RPI therefore filters first and enriches last:
 | Preliminary screen | 0 | Provider-enforced filters count as met; names mostly in non-Latin script are held back |
 | Screen (recent videos) | 3 per creator | Top 25 by preliminary score, and only when the provider's data may be used for scoring |
 | Deep analysis | 5 per creator | Top 10 screened; sponsorship history |
-| Contact | 15 per creator | Only `recommend`; charged only when an email exists |
+| Contact | 15 per creator | Only `recommend`; charged only when an email exists; skipped for creators the partnership bot is talking to |
+| Inbound bought-view check | 5 per creator | Recent videos (3) and lifetime views (2) for creators who wrote in; at most 10 per autopilot cycle |
 | Audience demographics | 10 per creator | Only for creators recommended on everything else; the search filter checks only the single largest (modeled) audience country, which let India- and Nigeria-based channels through. `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=false` stops it, and then no creator without a breakdown is recommended |
 
 Paid calls whose data the score may not use are skipped: with `RPI_CREATORDB_SCORING_PERMITTED=false` no

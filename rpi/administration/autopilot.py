@@ -9,6 +9,9 @@ admin has it enabled in rpi_autopilot_settings. Each cycle:
 2. Approves those drafts when auto-approval is on and they pass validation.
 3. Schedules approved, unscheduled drafts into the next free days at
    `send_time`, at most `daily_send_limit` a day.
+3a. Checks creators who wrote in for bought views: up to
+   INBOUND_CHECKS_PER_RUN of the partnership bot's recent contacts that RPI
+   has never screened (about 5 credits each, inside the weekly allowance).
 4. When fewer than `target_queue` messages are waiting, researches more
    creators: one page of the current discovery preset (continuing where the
    last page ended), then screening and deep analysis, as an `autopilot` job.
@@ -36,6 +39,7 @@ import structlog
 from rpi.administration.jobs import FAILED, create_job, run_job
 from rpi.api.serialize import jsonb
 from rpi.core.audit import audit
+from rpi.crm import external_conversations as external
 from rpi.crm.contact_history import partner_scout_history
 from rpi.crm.external_conversations import conversation as external_conversation
 from rpi.crm.suppression import is_suppressed
@@ -56,6 +60,10 @@ CURSOR_END = "end"
 # A scheduled draft still unsent this long after its time was held back (daily
 # limit, sending off) and is given a new day before new drafts are placed.
 OVERDUE_AFTER = timedelta(minutes=30)
+# Creators who wrote in, checked for bought views per cycle, and the credits one
+# check takes (recent videos 3, lifetime views 2).
+INBOUND_CHECKS_PER_RUN = 10
+INBOUND_CHECK_CREDITS = 5
 
 
 def window_bounds(window: str) -> tuple[dtime, dtime]:
@@ -109,12 +117,12 @@ async def load_settings(conn) -> dict:
 
 
 async def credits_used(conn, provider: str, now: datetime) -> Decimal:
-    """Credits the autopilot's own research jobs committed in the last 7 days."""
+    """Credits the autopilot's own research jobs (research and inbound checks) committed in the last 7 days."""
     v = await conn.fetchval(
         """SELECT COALESCE(SUM(l.actual_units), 0) FROM rpi_spend_ledger l
-           JOIN rpi_research_jobs j ON j.id = l.job_id AND j.job_type = 'autopilot'
+           JOIN rpi_research_jobs j ON j.id = l.job_id AND (j.job_type = 'autopilot' OR j.created_by = $3)
            WHERE l.provider = $1 AND l.status = 'committed' AND l.created_at > $2""",
-        provider, now - timedelta(days=7))
+        provider, now - timedelta(days=7), AUTOPILOT_ACTOR)
     return Decimal(v)
 
 
@@ -251,8 +259,44 @@ async def _prepare(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
 
 
 # --------------------------------------------------------------------------
-# Paid step: research
+# Paid steps: inbound bought-view checks, research
 # --------------------------------------------------------------------------
+
+
+async def _check_inbound(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
+    """Check creators who wrote in for bought views: screen (recent videos plus
+    lifetime views) the partnership bot's recent contacts RPI has never checked,
+    most recent first, inside the weekly allowance. Runs every cycle, before
+    research, because these are live offers."""
+    provider = provider_name(ctx)
+    async with pool.acquire() as conn:
+        due = await external.partners_to_check(conn, now=now, limit=INBOUND_CHECKS_PER_RUN)
+        used = await credits_used(conn, provider, now)
+    if not due:
+        summary["inbound"] = "no unchecked inbound partners"
+        return
+    allowance = Decimal(row["weekly_credit_cap"]) - used
+    if allowance < INBOUND_CHECK_CREDITS:
+        summary["inbound"] = f"{len(due)} inbound partner(s) wait: the weekly allowance is used"
+        return
+    names = {str(r["id"]): r["display_name"] for r in due}
+    async with pool.acquire() as conn:
+        job_id = await create_job(conn, "screen", {"creator_ids": list(names), "check_totals": True,
+                                                   "unit_caps": {provider: str(allowance)}, "purpose": "inbound check"},
+                                  AUTOPILOT_ACTOR, budget_usd=Decimal(str(ctx.settings.rpi_default_job_budget_usd)))
+    try:
+        result = await run_job(pool, job_id, discovery=ctx.discovery, research=ctx.research, stages=ctx.stages)
+    except Exception as exc:  # recorded on the job; the rest of the cycle still runs
+        summary["inbound"] = f"job {job_id} failed: {str(exc)[:200]}"
+        async with pool.acquire() as conn:
+            await _alert(conn, f"Inbound bought-view check failed: {str(exc)[:200]}", "inbound_failed", now)
+        return
+    results = (result.get("progress") or {}).get("results") or {}
+    summary["inbound"] = {
+        "job_id": job_id, "status": result.get("status"),
+        "checked": {names.get(cid, cid): verdict for cid, verdict in results.items()},
+        "bought_engagement": [names.get(cid, cid) for cid, v in results.items() if v == "reject_suspect_engagement"],
+    }
 
 
 async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
@@ -350,6 +394,7 @@ async def run_cycle(pool, ctx, *, now: Optional[datetime] = None) -> dict:
             summary: dict = {"status": "ok", "at": now.isoformat(), "drafted": [], "approved": [], "scheduled": [],
                              "skipped": []}
             await _prepare(pool, ctx, row, now, summary)
+            await _check_inbound(pool, ctx, row, now, summary)
             await _research(pool, ctx, row, now, summary)
             if isinstance(summary.get("research"), dict):
                 row = await load_settings(lock)
@@ -358,7 +403,7 @@ async def run_cycle(pool, ctx, *, now: Optional[datetime] = None) -> dict:
             await lock.execute("UPDATE rpi_autopilot_settings SET last_run_at = $1, last_run = $2::jsonb", now,
                                json.dumps(summary, default=str))
             await audit(lock, AUTOPILOT_ACTOR, "autopilot.run", "autopilot", None,
-                        {k: summary[k] for k in ("drafted", "approved", "scheduled", "research") if k in summary})
+                        {k: summary[k] for k in ("drafted", "approved", "scheduled", "inbound", "research") if k in summary})
             logger.info("rpi_autopilot", drafted=len(summary["drafted"]), approved=len(summary["approved"]),
                         scheduled=len(summary["scheduled"]), research=str(summary.get("research"))[:200])
             return summary

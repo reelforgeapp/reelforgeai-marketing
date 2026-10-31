@@ -1,5 +1,17 @@
 # RPI changelog
 
+## 0.2.13 — 2026-10-31
+
+* **Creators who write in are checked for bought views automatically.** Until now RPI screened only creators its
+  own searches found; inbound pitches, mostly from paid-review channels, were checked only if someone selected them.
+  Each autopilot cycle now screens up to 10 of the partnership bot's contacts from the last 90 days that RPI has
+  never checked, most recent first, including lifetime views so bought subscribers are caught too (5 credits each,
+  inside the weekly allowance, which now counts every job the autopilot runs). The run summary lists the creators
+  checked and those with bought engagement.
+* **Inbound partners not yet in RPI are added** when the bot syncs, from their YouTube links only: a channel id, or a
+  handle looked up with the YouTube Data API (one free quota unit, at most 10 per sync). Only the identity is stored.
+* Deep analysis no longer buys a contact lookup (15 credits) for creators the bot is already talking to.
+
 ## 0.2.12 — 2026-10-31
 
 * **Autopilot searches only creators based in an English-speaking country** (migration

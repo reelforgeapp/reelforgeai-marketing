@@ -2,7 +2,8 @@
 YouTube Data API adapter — verification and the spoken-language gate.
 
 Used to confirm a channel exists, read its public title/handle and link to
-source content, and to read the spoken language each recent upload declares
+source content, to find the channel id behind a handle a creator gave us,
+and to read the spoken language each recent upload declares
 (rpi.qualification.language_gate). Never used for scoring: every record is
 marked `derived_metrics_prohibited` (Developer Policies III.E.4(h)) and expires
 after 30 days (III.E.4(c)/(d)). One API project, one key; no key rotation
@@ -56,16 +57,18 @@ class YouTubeDataAdapter(ProviderAdapter):
         return CostEstimate(PROVIDER, operation.value, units, Decimal("0"), basis="quota_units")
 
     async def get_creator_profile(self, platform_account_id: str) -> ProviderResult[NormalizedCreator]:
+        """A channel by id, or by handle when given "@handle" (channels.list
+        forHandle; the result carries the channel id)."""
         op = Capability.CREATOR_PROFILE.value
+        lookup = {"forHandle": platform_account_id} if platform_account_id.startswith("@") else {"id": platform_account_id}
         try:
-            resp = await self.http.request(
-                "GET", "/channels", params={"part": "snippet", "id": platform_account_id, "key": self.api_key}
-            )
+            resp = await self.http.request("GET", "/channels", params={"part": "snippet", **lookup, "key": self.api_key})
         except ProviderError as exc:
             return ProviderResult(PROVIDER, op, ResultStatus.ERROR, error=exc.message, error_code=exc.code)
         items = resp.json().get("items") or []
         if not items:
             return ProviderResult(PROVIDER, op, ResultStatus.NOT_FOUND, cost=CostActual(Decimal("1")))
+        platform_account_id = items[0].get("id") or platform_account_id
         snippet = items[0].get("snippet", {})
         now = utcnow()
         prov = Provenance(

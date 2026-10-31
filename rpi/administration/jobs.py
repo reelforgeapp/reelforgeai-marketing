@@ -101,7 +101,8 @@ async def run_job(pool, job_id: str, *, discovery, research, stages: StageSizes,
             progress = {"discovery_run_id": result["run_id"], "summary": {k: result[k] for k in ("total_found", "new_creators", "preliminary_qualified", "non_english")}}
         elif job["job_type"] in ("screen", "deep"):
             ids = params.get("creator_ids", [])
-            status, progress = await _process(pool, research, job["job_type"], ids, ctx, progress, job["created_by"], job_id)
+            status, progress = await _process(pool, research, job["job_type"], ids, ctx, progress, job["created_by"], job_id,
+                                              check_totals=bool(params.get("check_totals")))
         elif job["job_type"] == "autopilot":
             status, progress = await _autopilot(pool, discovery, research, ctx, progress, stages, job["created_by"], job_id,
                                                 params)
@@ -122,20 +123,22 @@ async def run_job(pool, job_id: str, *, discovery, research, stages: StageSizes,
 FAILED = "failed: "
 
 
-async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop=None, parent=None):
+async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop=None, parent=None, check_totals=False):
     """Screen or deep-analyze `ids`, saving progress after each creator. Inside a
     multi-stage job, `parent` is (job progress, this stage's key), so each save
     keeps the other stages' progress. One creator's error is recorded as
-    "failed: ..." and the job moves on."""
+    "failed: ..." and the job moves on. `check_totals` makes screening also
+    check lifetime views against subscribers."""
     done = set(progress.get("done", []))
     results = progress.get("results", {})
+    extra = {"check_totals": True} if check_totals else {}
     for cid in ids:
         if cid in done:
             continue
         if stop is not None and await stop():
             return "stopped", {"done": sorted(done), "results": results}
         try:
-            r = await (research.screen(cid, ctx, actor) if kind == "screen" else research.deep(cid, ctx, actor))
+            r = await (research.screen(cid, ctx, actor, **extra) if kind == "screen" else research.deep(cid, ctx, actor))
         except Exception as exc:  # e.g. an unreadable model response; deep analysis is retried on a later run
             logger.exception("rpi_creator_research_failed", job_id=job_id, creator_id=cid, stage=kind)
             r = {"error": f"{FAILED}{exc}"[:300], "notes": []}
