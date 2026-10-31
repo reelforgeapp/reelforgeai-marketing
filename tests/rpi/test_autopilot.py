@@ -164,7 +164,7 @@ async def test_autopilot_api_is_admin_only_and_validates(api):
     assert ok.status_code == 200
     status = (await api.get(f"{V1}/autopilot", headers=api.admin)).json()
     assert status["enabled"] and status["auto_approve"] and status["weekly_credit_cap"] == 150
-    assert status["credits_left_7d"] == "150" and status["next_search"] == {"preset": "quality", "page_token": None}
+    assert status["credits_left_7d"] == "150" and status["next_search"] == {"preset": "english_based", "page_token": None}
     async with api.ctx.pool.acquire() as conn:
         assert await conn.fetchval("SELECT COUNT(*) FROM rpi_audit_log WHERE action = 'autopilot.settings_changed'") == 1
 
@@ -327,16 +327,28 @@ async def test_turning_autopilot_off_stops_its_sends(api, pool, fake_llm):
 
 
 @pytest.mark.db
-async def test_outside_range_migration_appends_presets_once(pool):
+async def test_english_based_migration_replaces_the_old_presets_once(pool):
     from pathlib import Path
 
-    sql = (Path(__file__).resolve().parents[2] / "database" / "migrations" / "008_rpi_outside_range_presets.sql").read_text()
+    migrations = Path(__file__).resolve().parents[2] / "database" / "migrations"
+    up = [(migrations / f).read_text() for f in ("008_rpi_outside_range_presets.sql", "011_rpi_english_based_presets.sql")]
+    down = (migrations / "011_rpi_english_based_presets_down.sql").read_text()
+    presets = "SELECT presets FROM rpi_autopilot_settings"
+    english_based = ["english_based", "english_based_small", "english_based_large"]
     async with pool.acquire() as conn:
-        assert await conn.fetchval("SELECT presets FROM rpi_autopilot_settings") == [
-            "quality", "quality_broad", "outside_range_small", "outside_range_large"]
+        assert await conn.fetchval(presets) == english_based  # the column default
+        # Production before 011: the four presets that check only the largest audience country.
+        await conn.execute(down)
+        await conn.execute("UPDATE rpi_autopilot_settings SET presets = presets || ARRAY['none']")
+        assert await conn.fetchval(presets) == [
+            "quality", "quality_broad", "outside_range_small", "outside_range_large", "none"]
+        for sql in up:
+            await conn.execute(sql)
+        assert await conn.fetchval(presets) == english_based + ["none"]
         await conn.execute("UPDATE rpi_autopilot_settings SET presets = ARRAY['quality']")  # an admin's choice
-        await conn.execute(sql)  # migrations re-run on every deploy
-        assert await conn.fetchval("SELECT presets FROM rpi_autopilot_settings") == ["quality"]
+        for sql in up:
+            await conn.execute(sql)  # migrations re-run on every deploy
+        assert await conn.fetchval(presets) == ["quality"]
 
 
 @pytest.mark.db

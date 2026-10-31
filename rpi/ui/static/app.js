@@ -110,10 +110,10 @@ const views = {
     const strategies = ["niche", "competitor_sponsorship", "emerging", "audience_first", "lookalike"];
     const checks = strategies.map(s => h("label", { style: "flex-direction:row;gap:4px;align-items:center" },
       h("input", { type: "checkbox", value: s, checked: s === "niche" }), s));
-    const preset = h("select", {}, ["quality", "quality_broad", "none"].map(p => h("option", { value: p }, p)));
+    const preset = h("select", {}, ["english_based", "quality", "quality_broad", "none"].map(p => h("option", { value: p }, p)));
     const kw = h("input", { placeholder: "blank = preset hashtags and topics; words are matched as hashtags", size: 40 });
     const minS = h("input", { type: "number", value: 10000 }), maxS = h("input", { type: "number", value: 150000 });
-    const countries = h("input", { value: "US,CA,GB,AU", size: 14 });
+    const countries = h("input", { value: "US,CA,GB,AU,NZ,IE", size: 18 });
     const max = h("input", { type: "number", value: 25 }), budget = h("input", { type: "number", step: "0.5", value: 10 });
     const aq = h("input", { placeholder: "audience description (SparkToro, opt-in)", size: 40 });
     const out = h("div");

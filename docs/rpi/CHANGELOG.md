@@ -1,5 +1,20 @@
 # RPI changelog
 
+## 0.2.12 — 2026-10-31
+
+* **Autopilot searches only creators based in an English-speaking country** (migration
+  `011_rpi_english_based_presets`). New presets `english_based`, `english_based_small` and `english_based_large`
+  are `quality`, `outside_range_small` and `outside_range_large` plus CreatorDB's creator `country` in
+  US/UK/CA/AU/NZ/IE (11 filters, two credits per page). CreatorDB's audience-country filter checks only the single
+  largest country, so half of the creators deep analysis paid to check failed the 50% English-speaking-audience gate.
+  A live probe on 2026-10-31 found 78 of the 215 `quality` creators with an English-speaking creator country, and
+  none of the 13 creators the gate had rejected among them. The migration replaces the four old presets in the
+  autopilot order once (an admin's later choice stands); `quality_broad` has no counterpart and is no longer
+  searched by the autopilot. The old presets stay available for manual runs. `english_based` is the default.
+* Audience countries in every preset now include New Zealand and Ireland, the same six countries the audience gate
+  counts.
+* `relatedCreators` (CreatorDB lookalike search) was probed and returned a validation error; it is not used.
+
 ## 0.2.11 — 2026-10-30
 
 * **Audience geography gate.** A recommendation now needs at least 50% of the audience in an English-speaking

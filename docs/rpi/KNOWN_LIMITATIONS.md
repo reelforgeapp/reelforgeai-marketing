@@ -2,8 +2,11 @@
 
 ## External blockers (need access or a decision)
 
-1. **CreatorDB search relevance unmeasured.** Live since 2026-10-25. Keywords are matched as hashtags, which may
-   miss creators who don't tag, and niches are noisy (presets use hashtags AND topics). Competitor-sponsorship
+1. **CreatorDB search relevance only partly measured.** Live since 2026-10-25. Keywords are matched as hashtags,
+   which may miss creators who don't tag, and niches are noisy (presets use hashtags AND topics). Search cannot
+   filter on the share of the audience in a country; the autopilot presets require the creator to live in an
+   English-speaking country instead, which leaves out creators with no country on CreatorDB (2026-10-31: 78 of
+   215 matching creators remain). Lookalike search (`relatedCreators`) fails validation. Competitor-sponsorship
    discovery needs `/sponsor/creators`, which is not called yet.
 2. **CreatorDB publishes no API terms.** ReelForge confirmed its agreement permits internal scoring;
    `RPI_CREATORDB_SCORING_PERMITTED=true` in production.
