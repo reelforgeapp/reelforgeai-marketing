@@ -95,8 +95,8 @@ Search relevance limits, from live tests on 2026-10-25: CreatorDB niches are has
 `mainLanguage` label misses many bilingual channels, and hashtags such as `#facelessyoutube` also match channels
 that publish AI content rather than teach it. Screening the recent videos is what separates them. The default
 preset `english_based` also requires the creator to live in an English-speaking country, because CreatorDB's
-audience-country filter checks only the largest country (2026-10-31: this removed every creator the 50% audience
-gate had rejected). Use `quality` (same filters without the creator's country; almost three times the pool, but
+audience-country filter checks only the largest country (2026-10-31: the remaining pool contained none of the creators
+the 50% audience gate had rejected). Use `quality` (same filters without the creator's country; almost three times the pool, but
 12 of the 27 checked creators among its first 100 failed the audience gate) or `quality_broad` (topics + niches, including income niches) for a wider pool, or
 `preset: "none"` to search with only the fields you send.
 
