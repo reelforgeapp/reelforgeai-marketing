@@ -36,6 +36,7 @@ from rpi.content_intelligence.claude_client import LLM, ModelPrice
 from rpi.content_intelligence.classifier import CreatorAnalysis, VideoInput, analyze_creator, buyer_intent_summary
 from rpi.core.audit import audit
 from rpi.core.provenance import MeasurementType
+from rpi.crm.external_conversations import conversation as external_conversation
 from rpi.crm.pipeline import Status, TransitionError, transition
 from rpi.enrichment.value_gate import CreatorState, evaluate as gate
 from rpi.outreach.sender import hold_autopilot_sends
@@ -137,7 +138,10 @@ class ResearchService:
         return result, None
 
     # ------------------------------------------------------------------
-    async def screen(self, creator_id, ctx: CallContext, actor: str = "system") -> dict:
+    async def screen(self, creator_id, ctx: CallContext, actor: str = "system", check_totals: bool = False) -> dict:
+        """Stage 2. `check_totals` also buys the channel's lifetime views (2
+        credits) so bought subscribers are caught now rather than at deep
+        analysis; used for creators who wrote in, who may never reach it."""
         notes: list[str] = []
         ctx.creator_id = str(creator_id)
         async with self.pool.acquire() as conn:
@@ -153,6 +157,8 @@ class ResearchService:
             if result and result.data:
                 async with conn.transaction():
                     await record_content(conn, creator_id, result.data)
+            if check_totals:
+                await self._channel_totals(conn, creator_id, account, ctx, notes)
             await self._detect_sponsorships(conn, creator_id)
             analysis = await self._classify(conn, creator_id, ctx, allow_deep=False, notes=notes)
             qual = await self._qualify(conn, creator_id, analysis, stage=2, notes=notes)
@@ -198,12 +204,17 @@ class ResearchService:
 
             if include_contacts and qual.get("recommendation") == "recommend":
                 await conn.execute("UPDATE rpi_creators SET funnel_stage = GREATEST(funnel_stage, 4) WHERE id = $1", creator_id)
-                contacts, note = await self._paid(conn, creator_id, Capability.CREATOR_CONTACTS, CONTENT_PREFERENCE, account, ctx=ctx)
-                if note:
-                    notes.append(note)
-                if contacts and contacts.data:
-                    async with conn.transaction():
-                        await record_contacts(conn, creator_id, contacts.data)
+                if await external_conversation(conn, creator_id):
+                    # They wrote to us; RPI never cold-emails them, so the 15-credit lookup buys nothing.
+                    notes.append("skipped contact lookup: the partnership bot is in conversation with this creator")
+                else:
+                    contacts, note = await self._paid(conn, creator_id, Capability.CREATOR_CONTACTS, CONTENT_PREFERENCE,
+                                                      account, ctx=ctx)
+                    if note:
+                        notes.append(note)
+                    if contacts and contacts.data:
+                        async with conn.transaction():
+                            await record_contacts(conn, creator_id, contacts.data)
                 qual = await self._qualify(conn, creator_id, analysis, stage=4, notes=notes)
 
             if qual.get("recommendation") == "recommend":

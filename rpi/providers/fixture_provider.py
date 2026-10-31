@@ -131,6 +131,8 @@ class FixtureProvider(ProviderAdapter):
 
     async def get_creator_profile(self, platform_account_id: str) -> ProviderResult[NormalizedCreator]:
         self.calls.append("profile")
+        if platform_account_id.lower().startswith("@synthetic") and platform_account_id[10:].isdigit():
+            platform_account_id = f"UCFIXTURE{int(platform_account_id[10:]):06d}"  # handle lookup
         if not platform_account_id.startswith("UCFIXTURE"):
             return ProviderResult(PROVIDER, "get_creator_profile", ResultStatus.NOT_FOUND)
         return ProviderResult(PROVIDER, "get_creator_profile", ResultStatus.OK,

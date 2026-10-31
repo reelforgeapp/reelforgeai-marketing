@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 import asyncpg
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -43,6 +44,7 @@ from rpi.profit_modeling.model import (
     forecast,
 )
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 
@@ -364,14 +366,22 @@ class ExternalContactsBody(BaseModel):
 async def external_contacts(body: ExternalContactsBody, ctx: RPIContext = Depends(get_ctx),
                             p: Principal = Depends(require("ingest"))):
     """The partnership bot reports who it is in conversation with (addresses, channel ids,
-    message dates; no content). RPI stops cold outreach to them and marks replies to RPI emails."""
+    message dates; no content). RPI stops cold outreach to them, marks replies to RPI emails
+    and adds recent partners it does not know yet, so the autopilot checks them for bought views."""
+    contacts = [c.model_dump() for c in body.contacts]
     async with ctx.pool.acquire() as conn:
         async with conn.transaction():
-            n = await external.upsert(conn, body.source, [c.model_dump() for c in body.contacts])
+            n = await external.upsert(conn, body.source, contacts)
             replies = await external.mark_replies(conn, body.source, actor=p.actor)
-            await audit(conn, p.actor, "crm.external_contacts_synced", "external_contacts", None,
-                        {"source": body.source, "contacts": n, "replies_marked": len(replies)})
-    return {"upserted": n, "replies_marked": replies}
+        try:
+            added = await external.add_inbound_partners(conn, contacts,
+                                                        external.handle_resolver(ctx.registry, ctx.gateway))
+        except Exception:  # the sync itself is stored; adding partners is retried on the next sync
+            logger.exception("rpi_inbound_partners_failed")
+            added = []
+        await audit(conn, p.actor, "crm.external_contacts_synced", "external_contacts", None,
+                    {"source": body.source, "contacts": n, "replies_marked": len(replies), "partners_added": added})
+    return {"upserted": n, "replies_marked": replies, "partners_added": added}
 
 
 class NoteBody(BaseModel):
