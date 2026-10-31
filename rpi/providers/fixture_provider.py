@@ -164,9 +164,13 @@ class FixtureProvider(ProviderAdapter):
     async def get_audience_demographics(self, platform_account_id: str) -> ProviderResult[AudienceBreakdown]:
         self.calls.append("audience")
         r = _rng(f"aud{platform_account_id}")
-        us = r.uniform(0.2, 0.6)
+        # India-based synthetic creators get a mostly Indian audience; the rest a mostly US/UK one.
+        india = (platform_account_id.startswith("UCFIXTURE")
+                 and self._creator(self._index(platform_account_id), "audience").country == "IN")
+        us = r.uniform(0.05, 0.2) if india else r.uniform(0.45, 0.7)
         buckets = [
             AudienceBucket(dimension="country", bucket="US", share=round(us, 3), measurement=MeasurementType.THIRD_PARTY_MODELED),
+            AudienceBucket(dimension="country", bucket="GB", share=round(us / 6, 3), measurement=MeasurementType.THIRD_PARTY_MODELED),
             AudienceBucket(dimension="country", bucket="IN", share=round((1 - us) / 2, 3), measurement=MeasurementType.THIRD_PARTY_MODELED),
             AudienceBucket(dimension="age", bucket="25-34", share=round(r.uniform(0.25, 0.45), 3), measurement=MeasurementType.THIRD_PARTY_MODELED),
             AudienceBucket(dimension="age", bucket="18-24", share=round(r.uniform(0.15, 0.35), 3), measurement=MeasurementType.THIRD_PARTY_MODELED),

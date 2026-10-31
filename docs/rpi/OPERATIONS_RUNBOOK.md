@@ -52,8 +52,9 @@ contact found, so about 131 credits at the defaults (25 / 10 / 5).
    sizes (defaults: 25 / 10). The funnel screens only creators an RPI discovery run preliminarily qualified;
    creators imported from Partner Scout or added by hand are screened only when selected explicitly.
    Rejected-for-niche creators never receive paid enrichment afterwards.
-4. **Deep analysis** (stages 3–4): provider sponsorship history, selective transcripts, and a contact lookup for
-   recommended creators only. Audience demographics only when `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=true`.
+4. **Deep analysis** (stages 3–4): provider sponsorship history, selective transcripts, the audience country
+   breakdown when it is all that stands between a creator and a recommendation, and a contact lookup for
+   recommended creators only. A recommendation needs at least 50% of the audience in US/UK/CA/AU/NZ/IE.
 5. **Review**: creator profile → evidence, provenance tags, missing data, policy exclusions, risk screen.
 6. **Compare** shortlisted creators, then model the economics in the **Profitability Lab** with the creator's
    expected views and requested fee (add the fee as a `sponsorship_request` note so scoring can use it).
@@ -84,7 +85,7 @@ creator for enrichment. RPI therefore filters first and enriches last:
 | Screen (recent videos) | 3 per creator | Top 25 by preliminary score, and only when the provider's data may be used for scoring |
 | Deep analysis | 5 per creator | Top 10 screened; sponsorship history |
 | Contact | 15 per creator | Only `recommend`; charged only when an email exists |
-| Audience demographics | 10 per creator | Off by default; search already filters the main audience country |
+| Audience demographics | 10 per creator | Only for creators recommended on everything else; the search filter checks only the single largest (modeled) audience country, which let India- and Nigeria-based channels through. `RPI_FETCH_AUDIENCE_DEMOGRAPHICS=false` stops it, and then no creator without a breakdown is recommended |
 
 Paid calls whose data the score may not use are skipped: with `RPI_CREATORDB_SCORING_PERMITTED=false` no
 CreatorDB screening runs at all, because it could not change a recommendation. Cached and recently fetched

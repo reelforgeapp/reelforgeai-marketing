@@ -11,7 +11,8 @@ Gates (all enforced in code, independent of any model output):
   3. draft re-validates (familiarity / claims / numbers / URLs)
   4. recipient comes from a stored contact record for this creator
   5. recipient and creator are not suppressed (RPI + Partner Scout opt-outs)
-  6. creator in an outreach-eligible CRM status
+  6. creator in an outreach-eligible CRM status, and not disqualified by RPI
+     when the autopilot approved the draft (a person's approval stands)
   7. no message to this creator or address within min_days_between_contacts,
      counting Partner Scout's emails (marketing_prospects.last_contacted_at)
   8. daily send limit not reached
@@ -229,9 +230,13 @@ async def check_gates(conn, draft: dict, contact: Optional[dict], settings_row: 
     if suppressed:
         reasons.append(suppressed)
 
-    status = await conn.fetchval("SELECT pipeline_status FROM rpi_creators WHERE id = $1", draft["creator_id"])
+    creator = await conn.fetchrow("SELECT pipeline_status, disqualified_reason FROM rpi_creators WHERE id = $1",
+                                  draft["creator_id"])
+    status = creator["pipeline_status"] if creator else None
     if status is None or Status(status) not in OUTREACH_ELIGIBLE:
         reasons.append(f"creator CRM status '{status}' is not eligible for outreach")
+    elif creator["disqualified_reason"] and draft["approved_by"] == AUTOPILOT_ACTOR:
+        reasons.append(f"creator disqualified ({creator['disqualified_reason']}) after the autopilot approved this draft")
 
     days = settings_row["min_days_between_contacts"]
     recent = await conn.fetchval(
@@ -361,6 +366,21 @@ async def test_send(pool, draft_id: str, to_email: str, actor: str, send_fn: Sen
 
 SCHEDULER_ACTOR = "scheduler:rpi"
 AUTOPILOT_ACTOR = "autopilot:rpi"  # rpi.administration.autopilot approves and schedules as this actor
+
+
+async def hold_autopilot_sends(conn, creator_id, reason: str, actor: str = SCHEDULER_ACTOR) -> int:
+    """Cancel the schedule of a creator's unsent, autopilot-approved drafts (as
+    a refused scheduled send does) once RPI disqualifies the creator, so the
+    send slot goes to someone else. A person's approval stands; scheduling the
+    draft again clears the reason. Returns how many were held."""
+    rows = await conn.fetch(
+        """UPDATE rpi_outreach_drafts SET scheduled_send_at = NULL, failure_reason = $3
+           WHERE creator_id = $1 AND status = 'approved' AND approved_by = $2
+             AND failure_reason IS DISTINCT FROM $3 RETURNING id""",
+        creator_id, AUTOPILOT_ACTOR, reason[:500])
+    for r in rows:
+        await audit(conn, actor, "outreach.schedule_cancelled", "outreach_draft", r["id"], {"reasons": [reason]})
+    return len(rows)
 # Refusals that clear up on their own: keep the schedule and try again later.
 TRANSIENT_REFUSALS = ("daily send limit", "sending is disabled")
 SENT_TODAY_SQL = ("SELECT COUNT(*) FROM rpi_outreach_drafts WHERE status IN ('sent', 'sending') "

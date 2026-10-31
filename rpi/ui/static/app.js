@@ -178,7 +178,7 @@ const views = {
       ...["discovered", "preliminary_qualified", "deep_analysis", "recommended", "contact_identified", "outreach_approved", "contacted",
         "negotiating", "active_partnership", "rejected", "do_not_contact"].map(s => h("option", { value: s }, s)));
     const rec = h("select", {}, h("option", { value: "" }, "any recommendation"),
-      ...["recommend", "investigate", "hold", "reject_niche_mismatch", "reject_suspect_engagement", "needs_data"].map(s => h("option", { value: s }, s)));
+      ...["recommend", "investigate", "hold", "reject_niche_mismatch", "reject_suspect_engagement", "reject_audience_geography", "needs_data"].map(s => h("option", { value: s }, s)));
     const q = h("input", { placeholder: "name or handle" });
     const list = h("div");
     const load = async () => {
@@ -238,6 +238,9 @@ const views = {
         ". RPI will not cold-email them; continue the conversation from the inbox.") : null,
       q?.components?.commercial_fit?.flags?.length
         ? h("div", { class: "notice" }, q.components.commercial_fit.flags.map(f => f[0].toUpperCase() + f.slice(1)).join("; ")) : null,
+      q?.components?.audience_fit?.geography?.english_speaking_share != null
+        ? h("div", { class: "notice" }, `${pct(q.components.audience_fit.geography.english_speaking_share)} of the audience is in ` +
+          `English-speaking countries (US, UK, CA, AU, NZ, IE); a recommendation needs ${pct(q.components.audience_fit.geography.required)}.`) : null,
       panel("Identity and channels", table([{ label: "Platform", key: "platform" }, { label: "Account id", key: "platform_account_id" },
         { label: "Handle", key: "handle" }, { label: "Link", render: r => r.url ? h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, "open") : "—" }], p.accounts),
         p.identity_matches.length ? h("p", { class: "muted" }, `${p.identity_matches.length} identity match record(s); review under Administration.`) : null),

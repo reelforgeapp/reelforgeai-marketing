@@ -187,7 +187,7 @@ async def _approve_drafts(conn, summary: dict) -> None:
         """SELECT d.id, d.creator_id, d.subject, d.body_text, d.idempotency_key, c.display_name
            FROM rpi_outreach_drafts d JOIN rpi_creators c ON c.id = d.creator_id
            WHERE d.status = 'draft' AND d.created_by = $1 AND d.generator = 'template'
-             AND (d.validation->>'ok')::boolean AND d.contact_id IS NOT NULL
+             AND (d.validation->>'ok')::boolean AND d.contact_id IS NOT NULL AND c.disqualified_reason IS NULL
            ORDER BY d.created_at""", AUTOPILOT_ACTOR)
     for d in drafts:
         if d["idempotency_key"] != draft_key(d["creator_id"], d["subject"], d["body_text"]):
@@ -211,7 +211,9 @@ async def _schedule(conn, ctx, now: datetime, summary: dict, row: dict) -> None:
            JOIN rpi_creators c ON c.id = d.creator_id
            WHERE d.status = 'approved' AND d.failure_reason IS NULL
              AND (d.scheduled_send_at IS NULL OR d.scheduled_send_at < $1)
-           ORDER BY d.scheduled_send_at NULLS LAST, d.approved_at NULLS LAST, d.created_at""", now - OVERDUE_AFTER)
+             AND (c.disqualified_reason IS NULL OR d.approved_by IS DISTINCT FROM $2)
+           ORDER BY d.scheduled_send_at NULLS LAST, d.approved_at NULLS LAST, d.created_at""",
+        now - OVERDUE_AFTER, AUTOPILOT_ACTOR)
     if not drafts:
         return
     per_day = await conn.fetchval("SELECT daily_send_limit FROM rpi_outreach_settings LIMIT 1") or 0

@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     rpi_stage4_qualify: int = Field(default=10)
     rpi_stage5_recommend: int = Field(default=5)
     # Audience demographics cost 10 CreatorDB credits per creator.
-    rpi_fetch_audience_demographics: bool = Field(default=False)
+    rpi_fetch_audience_demographics: bool = Field(default=True)
 
     # Affiliate program terms (see KNOWN_LIMITATIONS: public pages disagree)
     rpi_affiliate_commission_rate: float = Field(default=0.30)
