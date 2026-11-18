@@ -45,11 +45,13 @@ DATABASE_URL=<db url> python -m scripts.rpi_migrate
 ```
 
 Idempotent: it creates `rpi_*` tables, seeds the competitor registry and budgets, and imports Partner Scout
-YouTube prospects as RPI creators (ids, handles and names only; no emails). Run it before the code deploy goes live.
+YouTube prospects as RPI creators (ids, handles and names only; no emails). Run it before the code deploy goes live,
+except when the release adds autopilot presets (011, 013): then deploy the code first, because older code rejects
+the new preset names (and, for 013, would read a dated discovery cursor as a CreatorDB page offset).
 Verify:
 
 ```sql
-SELECT version, applied_at FROM rpi_schema_migrations;          -- 005_rpi_core ... 011_rpi_english_based_presets
+SELECT version, applied_at FROM rpi_schema_migrations;          -- 005_rpi_core ... 011_rpi_english_based_presets, 013_rpi_wider_presets
 SELECT scope, period, provider, limit_usd FROM rpi_budgets;      -- $200/mo global, $25/day, per-provider
 ```
 

@@ -453,7 +453,12 @@ const views = {
         card("Messages waiting", `${num(a.queue)} / ${num(a.target_queue)}`, h("div", { class: "muted" }, "research runs when below target")),
         card("Credits used (7 days)", num(a.credits_used_7d)), card("Credits left (7 days)", num(a.credits_left_7d)),
         card("Qualified, not yet screened", num(a.candidates_waiting)),
-        card("Next search", a.next_search ? `${a.next_search.preset} from #${Number(a.next_search.page_token || 0) + 1}` : "all presets searched")),
+        card("Next search", a.next_search
+          ? `${a.next_search.preset} from #${Number(a.next_search.page_token || 0) + 1}${a.next_search.repeat ? " (searching it again)" : ""}`
+          : "all presets searched",
+          a.next_search ? null : h("div", { class: "muted" }, a.next_repeat_search_on
+            ? `searched again from ${a.next_repeat_search_on}; add a preset to find creators sooner`
+            : "add a preset or widen the criteria to find new creators"))),
       panel("Settings (admin)", h("div", { class: "row" },
         field("On", f.enabled), field("Approve its own drafts", f.auto_approve), field("Weekly credit allowance", f.weekly_credit_cap),
         field("Keep this many messages waiting", f.target_queue), field(`Send time (${w.timezone})`, f.send_time)),

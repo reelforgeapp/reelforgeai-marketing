@@ -1,5 +1,27 @@
 # RPI changelog
 
+## 0.2.15 — 2026-11-18
+
+(0.2.13 and 0.2.14 are claimed by work not yet merged: PR #27 and the presenter-format check.)
+
+* **Finished discovery presets are searched again.** The three `english_based` presets ran out by 2026-11-10
+  (about 89 creators in all), and every daily run since reported "no discovery preset left" with most of the
+  weekly allowance unused. A finished preset now records the day of its last page (`end:YYYY-MM-DD` in
+  `discovery_cursor`) and starts again from page one `RPI_PRESET_RESEARCH_DAYS` days later (default 30; 0 turns it
+  off), ahead of the presets after it. CreatorDB adds creators, and channels grow into the filters (two uploads in
+  30 days, median views, subscribers). Creators RPI already scored are not screened again, so a repeat search costs
+  only its pages. Migration 013 dates cursors written before this release (a bare `end`) with the day it runs, so
+  the new presets are searched first; run it after the code deploy, because older code would send a dated cursor to
+  CreatorDB as a page offset.
+* **Two wider presets** (migration `013_rpi_wider_presets`, appended to the autopilot order once; an admin's later
+  choice stands): `english_based_broad` is `quality_broad` (CreatorDB topics AND core and income niches) plus the
+  creator country, 11 filters, two credits per page; `english_based_topics` is the topics alone plus every gate,
+  10 filters, one credit per page, searched last. Both drop the hashtag filter, which matches only a creator's own
+  channel tags. The 50% English-speaking-audience gate and the bought-view checks still decide every
+  recommendation.
+* The autopilot status reports `next_repeat_search_on` and whether the next search is a repeat; the Autopilot page
+  shows them, and the "every preset searched" alert names the day searching resumes.
+
 ## 0.2.12 — 2026-10-31
 
 * **Autopilot searches only creators based in an English-speaking country** (migration

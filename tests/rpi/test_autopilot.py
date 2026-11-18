@@ -1,5 +1,6 @@
 """Autopilot: unattended research, drafting, approval and scheduling inside a weekly credit allowance."""
 
+import json
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -164,7 +165,7 @@ async def test_autopilot_api_is_admin_only_and_validates(api):
     assert ok.status_code == 200
     status = (await api.get(f"{V1}/autopilot", headers=api.admin)).json()
     assert status["enabled"] and status["auto_approve"] and status["weekly_credit_cap"] == 150
-    assert status["credits_left_7d"] == "150" and status["next_search"] == {"preset": "english_based", "page_token": None}
+    assert status["credits_left_7d"] == "150" and status["next_search"] == {"preset": "english_based", "page_token": None, "repeat": False}
     async with api.ctx.pool.acquire() as conn:
         assert await conn.fetchval("SELECT COUNT(*) FROM rpi_audit_log WHERE action = 'autopilot.settings_changed'") == 1
 
@@ -336,7 +337,8 @@ async def test_english_based_migration_replaces_the_old_presets_once(pool):
     presets = "SELECT presets FROM rpi_autopilot_settings"
     english_based = ["english_based", "english_based_small", "english_based_large"]
     async with pool.acquire() as conn:
-        assert await conn.fetchval(presets) == english_based  # the column default
+        await conn.execute((migrations / "013_rpi_wider_presets_down.sql").read_text())
+        assert await conn.fetchval(presets) == english_based  # the column default before 013
         # Production before 011: the four presets that check only the largest audience country.
         await conn.execute(down)
         await conn.execute("UPDATE rpi_autopilot_settings SET presets = presets || ARRAY['none']")
@@ -349,6 +351,79 @@ async def test_english_based_migration_replaces_the_old_presets_once(pool):
         for sql in up:
             await conn.execute(sql)  # migrations re-run on every deploy
         assert await conn.fetchval(presets) == ["quality"]
+        await conn.execute((migrations / "013_rpi_wider_presets.sql").read_text())  # restore the column default
+
+
+@pytest.mark.db
+async def test_wider_presets_migration_appends_them_once(pool):
+    from pathlib import Path
+
+    migrations = Path(__file__).resolve().parents[2] / "database" / "migrations"
+    up = (migrations / "013_rpi_wider_presets.sql").read_text()
+    down = (migrations / "013_rpi_wider_presets_down.sql").read_text()
+    presets = "SELECT presets FROM rpi_autopilot_settings"
+    english_based = ["english_based", "english_based_small", "english_based_large"]
+    wider = ["english_based_broad", "english_based_topics"]
+    async with pool.acquire() as conn:
+        assert await conn.fetchval(presets) == english_based + wider  # the column default
+        # Production before 013, with an admin's extra preset after the english_based ones and
+        # cursors written before 0.2.15, which do not say when a preset finished.
+        await conn.execute(down)
+        await conn.execute("UPDATE rpi_autopilot_settings SET presets = presets || ARRAY['quality'], "
+                           """discovery_cursor = '{"english_based": "end", "english_based_small": "25"}'""")
+        await conn.execute(up)
+        assert await conn.fetchval(presets) == english_based + ["quality"] + wider
+        today = await conn.fetchval("SELECT CURRENT_DATE::text")
+        cursor = "SELECT discovery_cursor::text FROM rpi_autopilot_settings"
+        assert json.loads(await conn.fetchval(cursor)) == {"english_based": f"end:{today}", "english_based_small": "25"}
+        await conn.execute("UPDATE rpi_autopilot_settings SET discovery_cursor = '{}'")
+        await conn.execute(up)
+        assert await conn.fetchval(cursor) == "{}"
+        await conn.execute("UPDATE rpi_autopilot_settings SET presets = ARRAY['english_based']")  # an admin's choice
+        await conn.execute(up)  # migrations re-run on every deploy
+        assert await conn.fetchval(presets) == ["english_based"]
+        await conn.execute("UPDATE rpi_autopilot_settings SET presets = ARRAY['english_based_topics']")
+        await conn.execute(down)
+        assert await conn.fetchval(presets) == english_based  # never left without a preset
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM rpi_schema_migrations WHERE version = '013_rpi_wider_presets'") == 0
+        await conn.execute(up)  # restore the column default for later tests
+
+
+@pytest.mark.db
+async def test_finished_preset_is_searched_again_after_thirty_days(pool, fake_llm):
+    from datetime import timedelta
+
+    from rpi.administration.autopilot import status
+
+    await configure(pool, target=100)
+    ctx = make_context(pool, llm=fake_llm)
+    cursor = "SELECT discovery_cursor->>'none' FROM rpi_autopilot_settings"
+    async with pool.acquire() as conn:
+        # The fixture search has 60 creators: the page from #51 is its last.
+        await conn.execute("""UPDATE rpi_autopilot_settings SET discovery_cursor = '{"none": "50"}'""")
+    nov18 = datetime(2026, 11, 18, 12, 30, tzinfo=timezone.utc)
+    first = await run_cycle(pool, ctx, now=nov18)
+    assert first["research"]["discovery"]["total_found"] > 0, first["research"]
+    async with pool.acquire() as conn:
+        assert await conn.fetchval(cursor) == "end:2026-11-18"
+        alert = await conn.fetchval("SELECT message FROM rpi_alerts WHERE dedupe_key = 'autopilot:exhausted:2026-11-18'")
+        shown = await status(conn, ctx, now=nov18)
+    assert "again 30 days after its last page, from 2026-12-18" in alert
+    assert shown["next_search"] is None and shown["next_repeat_search_on"] == "2026-12-18"
+
+    waiting = await run_cycle(pool, ctx, now=nov18 + timedelta(days=29))
+    assert waiting["research"]["discovery"] == {"skipped": "no discovery preset left"}
+
+    again = await run_cycle(pool, ctx, now=nov18 + timedelta(days=30))
+    research = again["research"]
+    assert research["preset"] == "none" and research["page_token"] is None and research["repeat_search"], research
+    assert research["discovery"]["total_found"] > 0
+    async with pool.acquire() as conn:
+        assert await conn.fetchval(cursor) == "25"  # continues page by page from there
+        shown = await status(conn, ctx, now=nov18 + timedelta(days=30))
+    assert shown["next_search"] == {"preset": "none", "page_token": "25", "repeat": False}
+    assert shown["next_repeat_search_on"] is None
 
 
 @pytest.mark.db

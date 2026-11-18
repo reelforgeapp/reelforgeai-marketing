@@ -7,6 +7,7 @@ is scripts/rpi_verify_creatordb.py (see TEST_STRATEGY.md).
 """
 
 import json
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -261,7 +262,7 @@ def test_outside_range_presets_cover_the_gaps_with_stricter_relevance():
 
 
 def test_autopilot_searches_only_english_based_creators_main_size_first():
-    from rpi.administration.autopilot import CURSOR_END, current_preset
+    from rpi.administration.autopilot import current_preset
     from rpi.discovery.presets import AUTOPILOT_PRESETS, DEFAULT_PRESET
 
     assert all(apply_preset(CreatorSearchCriteria(), p).countries for p in AUTOPILOT_PRESETS)
@@ -271,10 +272,61 @@ def test_autopilot_searches_only_english_based_creators_main_size_first():
     assert current_preset(row) == ("english_based", None)
     row["discovery_cursor"] = {"english_based": "50"}
     assert current_preset(row) == ("english_based", "50")
-    row["discovery_cursor"] = {"english_based": CURSOR_END}
-    assert current_preset(row) == ("english_based_small", None)
-    row["discovery_cursor"].update(english_based_small=CURSOR_END, english_based_large=CURSOR_END)
-    assert current_preset(row) == (None, None)
+    row["discovery_cursor"] = {"english_based": "end:2026-11-04"}
+    now = datetime(2026, 11, 18, 12, 30, tzinfo=timezone.utc)
+    assert current_preset(row, now=now) == ("english_based_small", None)
+    row["discovery_cursor"] = {p: "end:2026-11-10" for p in AUTOPILOT_PRESETS}
+    assert current_preset(row, now=now) == (None, None)
+
+
+def test_wider_presets_drop_hashtags_but_keep_every_gate_and_the_creator_country():
+    gates = {"mainLanguage", "country", "mainAudienceLocation", "totalSubscribers", "medianRecentVideosViews",
+             "avgRecentVideosEngagementRate", "contentsIn30Days", "hasEmail"}
+    broad = build_search_body(apply_preset(CreatorSearchCriteria(), "english_based_broad"))
+    topics = build_search_body(apply_preset(CreatorSearchCriteria(), "english_based_topics"))
+    quality_broad = build_search_body(apply_preset(CreatorSearchCriteria(), "quality_broad"))[0]["filters"]
+    # quality_broad (topics AND niches) plus the creator country: 11 filters, two credits a page.
+    assert [x for x in broad[0]["filters"] if x not in quality_broad] == [
+        {"filterName": "country", "op": "in", "value": ["AUS", "CAN", "GBR", "IRL", "NZL", "USA"]}]
+    assert len(broad[0]["filters"]) == 11 and search_credits(11) == 2 and not broad[1]
+    # Topics alone: 10 filters, one credit a page.
+    names = {x["filterName"] for x in topics[0]["filters"]}
+    assert names == gates | {"topics"} and len(topics[0]["filters"]) == 10 and not topics[1]
+    assert search_credits(len(topics[0]["filters"])) == 1
+    for body, _, _ in (broad, topics):
+        f = {(x["filterName"], x["op"]): x["value"] for x in body["filters"]}
+        assert "hashtags" not in {x["filterName"] for x in body["filters"]}
+        assert (f[("totalSubscribers", ">")], f[("totalSubscribers", "<")]) == (9_999, 150_001)
+        assert f[("medianRecentVideosViews", ">")] == 1_999 and f[("hasEmail", "=")] is True
+    from rpi.discovery.presets import AUTOPILOT_PRESETS
+
+    assert AUTOPILOT_PRESETS[-2:] == ("english_based_broad", "english_based_topics")  # widest last
+
+
+def test_finished_preset_is_searched_again_after_the_research_days():
+    from rpi.administration.autopilot import current_preset, finished_on, next_research_on
+
+    presets = ["english_based", "english_based_small", "english_based_topics"]
+    nov18 = datetime(2026, 11, 18, 12, 30, tzinfo=timezone.utc)
+    row = {"presets": presets, "discovery_cursor": {
+        "english_based": "end:2026-10-19", "english_based_small": "end:2026-11-05", "english_based_topics": "300"}}
+    # 30 days after its last page the main preset starts again from page one, before a
+    # later preset continues.
+    assert current_preset(row, now=nov18) == ("english_based", None)
+    assert current_preset(row, now=nov18 - timedelta(days=1)) == ("english_based_topics", "300")  # 29 days
+    assert current_preset(row, now=nov18, research_days=0) == ("english_based_topics", "300")
+    row["discovery_cursor"].update(english_based="end:2026-11-17", english_based_topics="end:2026-11-12")
+    assert current_preset(row, now=nov18) == (None, None)
+    assert next_research_on(row, 30) == date(2026, 12, 5)  # english_based_small, finished first
+    assert current_preset(row, now=datetime(2026, 12, 5, tzinfo=timezone.utc)) == ("english_based_small", None)
+    assert next_research_on(row, 0) is None
+    row["discovery_cursor"]["english_based_topics"] = "100"
+    assert next_research_on(row, 30) is None  # a preset still has pages left
+    # Cursors written before 0.2.15 say only "end": due at once.
+    assert finished_on("end") == date.min and finished_on("75") is None and finished_on(None) is None
+    assert finished_on("end:2026-11-10") == date(2026, 11, 10) and finished_on("end:garbled") == date.min
+    assert current_preset({"presets": presets, "discovery_cursor": {p: "end" for p in presets}}, now=nov18) == (
+        "english_based", None)
 
 
 def test_preset_yields_to_explicit_fields():
