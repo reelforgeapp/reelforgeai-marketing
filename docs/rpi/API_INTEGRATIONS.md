@@ -136,6 +136,23 @@ Nothing is sent unless `consent_state == granted` (default). See ATTRIBUTION_SPE
 RPI sends through the existing `BrevoClient`. The existing `/webhooks/brevo` handler now also forwards
 events for RPI messages (additive, wrapped in try/except).
 
+## Reditus — affiliate program (read only)
+
+Docs: https://docs.getreditus.com/affiliate-program-api. `Authorization: Bearer <REDITUS_API_KEY>`; base
+`https://api.getreditus.com/api`; 100 requests per 5 minutes (the client spaces requests 3.1 s apart and retries
+429/5xx with `Retry-After`); lists page with `page`/`per_page` (max 50) and `meta.pagination.has_more`.
+
+| Endpoint | Used for | Verified live 2026-11-18 |
+|---|---|---|
+| `GET /v1/partners` | slug, login email (matching), PayPal on file | ✅ also returns `email`, `display_name` (the email when no name) |
+| `GET /v1/partnerships` | state, link, application date, counters | ✅ partner embedded in `attributes.partner`, plus `referrals_count`, `paid_referrals_count`, `total_sold`, `commission_generated`, `tier_name`; `created_at` is ISO |
+| `GET /v1/referrals` | funnel per affiliate, user id | ✅ also `uid` (product user id), `partner_id`; times are epoch seconds |
+| `GET /v1/commissions` | pending, paid, rejected amounts (cents) | ✅ one-off commissions carry `one_off_reason` |
+
+RPI does not call the write endpoints (accept/terminate partnerships, reject referrals, create commissions or
+payments). The product (reelforge-backend `services/reditus.js`) reports signups through
+`POST /v2/tracking/conversion`; Reditus' Stripe connection reports payments.
+
 ## Not integrated, by design
 
 Modash, HypeAuditor and Influencers.club are not dependencies.

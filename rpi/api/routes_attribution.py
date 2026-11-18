@@ -15,7 +15,7 @@ from rpi.administration.auth import Principal
 from rpi.api.context import RPIContext
 from rpi.api.deps import get_ctx, require
 from rpi.api.serialize import clean
-from rpi.attribution import touches
+from rpi.attribution import reditus, touches
 from rpi.attribution.posthog import PostHogBridge
 from rpi.attribution.stripe_signature import SignatureError, verify
 from rpi.core.audit import audit
@@ -236,3 +236,27 @@ async def cohort_report(attribution_model: str = "last_touch", campaign_id: Opti
 async def reconciliation(ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("analyst"))):
     async with ctx.pool.acquire() as conn:
         return clean(await reports.reconciliation(conn))
+
+
+@router.get("/reditus/partners")
+async def reditus_partners(ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("viewer"))):
+    """Affiliates as Reditus reports them (clicks, signups, paid, commissions) next to RPI's attribution."""
+    async with ctx.pool.acquire() as conn:
+        report = await reditus.partner_report(conn)
+    report["api_key_set"] = bool(ctx.settings.reditus_api_key)
+    return clean(report)
+
+
+@router.post("/reditus/sync")
+async def reditus_sync(ctx: RPIContext = Depends(get_ctx), p: Principal = Depends(require("admin"))):
+    """Run the Reditus sync now (read only on the Reditus side; about ten API requests)."""
+    if not ctx.settings.reditus_api_key:
+        raise HTTPException(409, "REDITUS_API_KEY is not set")
+    from rpi.providers.reditus import ReditusClient
+
+    result = await reditus.sync(ctx.pool, ReditusClient(ctx.settings.reditus_api_key),
+                                window_days=ctx.program.attribution_window_days)
+    async with ctx.pool.acquire() as conn:
+        await audit(conn, p.actor, "reditus.sync", "reditus", None,
+                    {k: v for k, v in result.items() if not isinstance(v, list)})
+    return clean(result)

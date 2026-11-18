@@ -71,6 +71,42 @@ function setView(title, ...nodes) {
 }
 
 // ---------------------------------------------------------------- views
+function affiliatesPanel(red, reload) {
+  const t = red.totals, ck = red.checks;
+  const sync = h("button", { class: "secondary", onclick: () => api("POST", "/reditus/sync")
+    .then(r => { flash(r.status === "ok" ? `Synced ${r.partnerships} affiliates, ${r.referrals} referrals` : `Sync failed: ${r.error}`, r.status !== "ok"); reload(); })
+    .catch(e => flash(e.message, true)) }, "Sync now");
+  if (!red.configured) {
+    return panel("Affiliates (Reditus)", h("p", { class: "muted" }, red.api_key_set
+      ? "Not synced yet. The sync runs daily at 05:00 ET." : "Set REDITUS_API_KEY on the web service and worker to read the Reditus program."),
+      red.api_key_set ? sync : null);
+  }
+  const notices = [];
+  const pending = red.partners.filter(p => p.state === "pending");
+  if (pending.length) notices.push(`${pending.length} application(s) waiting in Reditus: ` +
+    pending.map(p => `${p.name || "?red=" + p.slug} (since ${String(p.applied_at || "").slice(0, 10)})`).join(", ") + ". Accept or decline them in Reditus.");
+  if (ck.signups_missing_in_reditus.length) notices.push(`${ck.signups_missing_in_reditus.length} of ${ck.referred_signups_checked} referred ` +
+    "signups since " + String(ck.since).slice(0, 10) + " are not in Reditus; their affiliates will not be paid for them.");
+  if (ck.payments_not_credited.length) notices.push(`Reditus has not credited ${ck.payments_not_credited.length} paying referred customer(s). ` +
+    "Check that Stripe is connected in Reditus.");
+  if (!ck.payment_check_has_data) notices.push("RPI has no Stripe payments yet, so it cannot check that Reditus credits payments.");
+  return panel("Affiliates (Reditus)",
+    h("p", { class: "muted" }, `Last synced ${String(red.last_synced_at).slice(0, 16).replace("T", " ")} UTC. ${t.affiliates_accepted} affiliates, ` +
+      `${t.active_affiliates} with any activity; ${t.clicks} clicks, ${t.signups} signups, ${t.paid} paid referrals; commission ` +
+      `${money(t.commission_pending_usd)} pending, ${money(t.commission_paid_usd)} paid.`),
+    ...notices.map(n => h("div", { class: "notice" }, n)),
+    table([{ label: "Affiliate", render: r => r.name || "—" }, { label: "Slug", key: "slug" }, { label: "State", key: "state" },
+      { label: "Country", key: "country" }, { label: "RPI creator", render: r => r.creator_id
+        ? h("a", { href: "#/creator/" + r.creator_id }, r.creator_name || "creator") : "—" },
+      { label: "Clicks", key: "clicks", num: true }, { label: "Signups", key: "signups", num: true }, { label: "Paid", key: "paid", num: true },
+      { label: "Commission pending", render: r => money(r.commission_pending_usd), num: true },
+      { label: "Commission paid", render: r => money(r.commission_paid_usd), num: true },
+      { label: "Accrued (RPI estimate)", render: r => r.campaign_id ? money(r.rpi_accrued_commission_usd) : "—", num: true },
+      { label: "PayPal", render: r => r.has_payout_method ? "yes" : "no" }],
+      [...red.partners].sort((a, b) => (b.signups - a.signups) || (b.clicks - a.clicks))),
+    h("div", { class: "row", style: "margin-top:10px" }, sync));
+}
+
 const views = {
   async dashboard() {
     const d = await api("GET", "/dashboard/executive");
@@ -215,7 +251,8 @@ const views = {
       api("GET", "/deals?creator_id=" + id).catch(() => [])]);
     const c = p.creator, snap = p.snapshots[0] || {}, q = p.qualification, cls = p.classification;
     const campName = h("input", { value: `${c.display_name || "Creator"} partnership`, size: 30 });
-    const refCode = h("input", { placeholder: "their Reditus ?ref= code", pattern: "[A-Za-z0-9_-]{2,60}" });
+    const refCode = h("input", { placeholder: "slug after ?red= in their link", pattern: "[A-Za-z0-9_\\-]{2,60}" });
+    const aff = p.affiliate;
     const campDeal = h("select", {}, h("option", { value: "" }, "no deal yet"),
       ...deals.map(d => h("option", { value: d.id }, `${d.structure} · ${d.status}`)));
     const target = h("select", {}, ...["preliminary_qualified", "deep_analysis", "recommended", "contact_identified", "outreach_approved",
@@ -274,16 +311,23 @@ const views = {
         { label: "Source", key: "source" }, { label: "Verification", key: "verification_status" }], p.contacts)
         : h("p", { class: "muted" }, "No contact on file. Contacts are fetched only after qualification and never guessed.")),
       panel("Campaign tracking",
+        aff ? h("div", { class: "notice" }, aff.state === "accepted"
+          ? `Reditus affiliate since ${String(aff.applied_at || "").slice(0, 10)} (?red=${aff.slug}): ${aff.clicks} click(s), ` +
+            `${aff.signups} signup(s), ${aff.paid} paid; commission ${money(aff.commission_pending_usd)} pending, ` +
+            `${money(aff.commission_paid_usd)} paid` + (aff.has_payout_method ? "." : ". No PayPal address in Reditus yet.")
+          : `Reditus affiliate application (?red=${aff.slug}) is ${aff.state}` +
+            (aff.state === "pending" ? ": accept or decline it in Reditus." : ".")) : null,
         campaigns.length ? table([{ label: "Campaign", key: "name" }, { label: "Referral code", key: "referral_code" },
           { label: "Window (days)", key: "attribution_window_days", num: true }, { label: "Status", key: "status" }], campaigns)
-          : h("p", { class: "muted" }, "Not tracked yet. When they join the affiliate program, enter the code from their Reditus link " +
-            "(reelforgeai.io/?ref=CODE). Signups through that link, including earlier ones, are then attributed to them."),
-        h("div", { class: "row", style: "margin-top:10px" }, field("Name", campName), field("Reditus referral code", refCode),
+          : h("p", { class: "muted" }, "Not tracked yet. When they join the affiliate program with the email RPI has for them, " +
+            "the daily Reditus sync starts tracking by itself. Otherwise enter the slug from their Reditus link " +
+            "(reelforgeai.io/?red=SLUG). Signups through that link, including earlier ones, are then attributed to them."),
+        h("div", { class: "row", style: "margin-top:10px" }, field("Name", campName), field("Reditus slug", refCode),
           field("Deal", campDeal),
           h("button", { onclick: () => refCode.value.trim() ? api("POST", "/campaigns", { creator_id: id, name: campName.value,
             referral_code: refCode.value.trim(), deal_id: campDeal.value || null })
             .then(r => { flash(`Tracking ${r.referral_code}` + (r.earlier_signups_attributed ? `; ${r.earlier_signups_attributed} earlier signup(s) attributed` : "")); views.creator(id); })
-            .catch(e => flash(e.message, true)) : flash("Enter their Reditus referral code", true) }, "Start tracking"))),
+            .catch(e => flash(e.message, true)) : flash("Enter their Reditus slug", true) }, "Start tracking"))),
       panel("Actions", h("div", { class: "row" }, target, reason,
         h("button", { onclick: () => api("POST", `/crm/creators/${id}/transition`, { status: target.value, reason: reason.value || null })
           .then(() => { flash("Status updated"); views.creator(id); }).catch(e => flash(e.message, true)) }, "Move"),
@@ -475,9 +519,10 @@ const views = {
     const model = h("select", {}, h("option", { value: "last_touch" }, "last touch (affiliate program)"), h("option", { value: "first_touch" }, "first touch"));
     const out = h("div");
     const load = async () => {
-      const [camps, rep, coh] = await Promise.all([api("GET", "/campaigns"), api("GET", "/reports/partners?attribution_model=" + model.value),
-        api("GET", "/reports/cohorts?attribution_model=" + model.value)]);
+      const [camps, rep, coh, red] = await Promise.all([api("GET", "/campaigns"), api("GET", "/reports/partners?attribution_model=" + model.value),
+        api("GET", "/reports/cohorts?attribution_model=" + model.value), api("GET", "/reditus/partners").catch(() => null)]);
       out.replaceChildren(
+        red ? affiliatesPanel(red, () => load()) : null,
         panel("Partner profitability (observed ledger)", rep.length ? table([
           { label: "Campaign", key: "campaign" }, { label: "Creator", key: "creator" }, { label: "Signups", key: "signups", num: true },
           { label: "Paying", key: "paying_customers", num: true }, { label: "Active", key: "active_customers", num: true },

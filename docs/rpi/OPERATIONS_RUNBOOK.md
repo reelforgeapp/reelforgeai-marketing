@@ -68,10 +68,28 @@ contact found, so about 131 credits at the defaults (25 / 10 / 5).
    record replies; check the inbox before following up.
 8. **Negotiate**: CRM transitions + `negotiation` notes; create the deal; mark it `agreed` only with a contract
    reference when required.
-9. **Launch**: on the creator page, *Campaign tracking* → enter their Reditus `?ref=` code (signups through their
-   link, including earlier ones, are attributed to the campaign); record the influencer fee as a campaign cost
-   with the invoice reference, move the creator to `active_partnership`.
+9. **Launch**: the creator joins the affiliate program in Reditus and you accept them there. If they used an
+   email RPI has for them (or link their YouTube channel in Reditus), the next daily Reditus sync starts campaign
+   tracking by itself and alerts you; otherwise, on the creator page, *Campaign tracking* → enter their Reditus
+   slug (the part after `?red=` in their link). Signups through their link, including earlier ones, are then
+   attributed to the campaign. Record the influencer fee as a campaign cost with the invoice reference and move
+   the creator to `active_partnership`.
 10. **Measure**: Campaigns → partner profitability (switch first/last touch) and cohorts.
+
+## Affiliate program (Reditus)
+
+Campaigns → *Affiliates (Reditus)* shows each affiliate's clicks, signups, paid referrals and commission as
+Reditus records them, next to RPI's accrued estimate, plus the program alerts (also on the dashboard):
+
+* **Application waiting**: accept or decline it in Reditus. RPI cannot do it.
+* **Signups not in Reditus**: referred signups since 2026-11-14 that Reditus never received. Check the
+  product's Reditus tracking (reelforge-backend `services/reditus.js`, frontend `lib/affiliate.js`) and that
+  `REDITUS_API_KEY` is set on reelforge-api, then add the missing referrals in Reditus so the affiliate is paid.
+* **Payments not credited**: Reditus has a referral but no payment for a customer who paid. Check that Stripe is
+  connected in Reditus; credit missed payments as one-off commissions there.
+* **Matches several creators**: start tracking the slug on the right creator's page; the sync then links it.
+
+*Sync now* (admin) refreshes immediately; it makes about ten read-only requests (Reditus allows 100 per 5 minutes).
 
 ## Credit-efficient discovery (CreatorDB)
 

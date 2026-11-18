@@ -90,6 +90,13 @@ celery_app.conf.update(
             'schedule': crontab(hour=4, minute=30),
             'options': {'queue': 'default'}
         },
+        # Reads the Reditus affiliate program (no writes, about ten API requests)
+        # before the ledger checks, so commission comparisons use fresh data.
+        'rpi-reditus-sync-daily': {
+            'task': 'tasks.rpi_tasks.rpi_reditus_sync',
+            'schedule': crontab(hour=5, minute=0),
+            'options': {'queue': 'default'}
+        },
         'rpi-ledger-checks-daily': {
             'task': 'tasks.rpi_tasks.rpi_daily_ledger_checks',
             'schedule': crontab(hour=5, minute=15),

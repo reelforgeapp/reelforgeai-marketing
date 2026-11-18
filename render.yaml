@@ -50,6 +50,8 @@ services:
         sync: false
       - key: CREATORDB_API_KEY
         sync: false
+      - key: REDITUS_API_KEY
+        sync: false
       - key: CREATORDB_USD_PER_CREDIT
         sync: false
       - key: CREATORDB_VERIFIED_ENDPOINTS
@@ -123,6 +125,8 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: CREATORDB_API_KEY
+        sync: false
+      - key: REDITUS_API_KEY
         sync: false
       - key: CREATORDB_USD_PER_CREDIT
         sync: false

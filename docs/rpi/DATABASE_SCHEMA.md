@@ -53,6 +53,15 @@ one approved/sending message per creator), `rpi_outreach_events`.
 consent state, idempotency key), `rpi_customers` (product user ↔ billing customer, first/last touch, lock),
 `rpi_billing_events` (raw signed events, unique per provider event id), `rpi_fx_rates`, `rpi_ledger_entries`.
 
+## Reditus (migration 014, read-only copy)
+
+* `rpi_reditus_partnerships`: one row per affiliate: slug (`?red=`), state, application date, Reditus counters,
+  login email (only to match a creator), and the linked `creator_id` / `campaign_id` with `match_basis`.
+* `rpi_reditus_referrals`: state per referral (click, signup, paid, …) and `customer_ref` (Reditus `uid`); no email.
+* `rpi_reditus_commissions`: amount (cents), currency, state, one-off reason.
+
+Rows that Reditus no longer lists are deleted at the next successful sync.
+
 ## Access, audit, OAuth, evaluation
 
 `rpi_workspaces`, `rpi_principals` (SHA-256 key hashes, roles), `rpi_audit_log`, `rpi_oauth_grants`

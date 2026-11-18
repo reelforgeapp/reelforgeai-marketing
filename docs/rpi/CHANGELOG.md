@@ -1,5 +1,31 @@
 # RPI changelog
 
+## 0.2.16 — 2026-11-18
+
+(0.2.13 to 0.2.15 are claimed by work not yet merged: PR #27, the presenter-format check and PR #28.)
+
+* **RPI reads the Reditus affiliate program** (migration `014_rpi_reditus`, `REDITUS_API_KEY` on web and worker).
+  A daily task (`rpi-reditus-sync-daily`, 05:00 ET, about ten GET requests; admins can run it with
+  `POST /reditus/sync`) copies partnerships, referrals and commissions into `rpi_reditus_*`. No customer email is
+  kept: a referral keeps Reditus' `uid`, which is the product user id. RPI never writes to Reditus.
+* **Affiliates are linked to creators and tracked without manual steps.** An affiliate is linked to the RPI
+  creator whose campaign already uses their slug, whose email they signed up with, whose partnership-bot
+  conversation used that email, or whose YouTube channel is their Reditus website; only a unique match counts. An
+  accepted affiliate linked to a creator gets campaign tracking with their slug, which also attributes their
+  earlier signups. Starting tracking by hand on the creator page links the affiliate with that slug too.
+* **Program alerts**: an application waiting for a decision (a warning when it comes from an RPI creator), an
+  affiliate matching several creators, signups through Reditus slugs since 2026-11-14 that never reached Reditus
+  (affiliates would not be paid; the product's tracking was broken from May to November), and paying referred
+  customers Reditus has not credited (its Stripe connection). The payment check needs RPI's Stripe endpoint.
+* **Reporting**: Campaigns shows an *Affiliates (Reditus)* panel (clicks, signups, paid referrals and Reditus'
+  pending and paid commission per affiliate next to RPI's accrued estimate, waiting applications, check results);
+  the creator page shows the creator's affiliate account. API: `GET /reditus/partners`.
+* The creator page asks for the **Reditus slug** (`reelforgeai.io/?red=SLUG`). It used to ask for a `?ref=` code,
+  but Reditus links carry `?red=`; the product stores that slug as the signup's referral code.
+* The slug field's validation pattern was rejected by current browsers (an unescaped `-` in a `v`-mode character
+  class), so any value was accepted; it is escaped now. The UI's `?v=` cache key moves from 0.2.7 to 0.2.16, so
+  browsers load the current script (0.2.11 and 0.2.12 changed it without moving the key).
+
 ## 0.2.12 — 2026-10-31
 
 * **Autopilot searches only creators based in an English-speaking country** (migration

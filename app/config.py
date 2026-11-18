@@ -110,6 +110,9 @@ class Settings(BaseSettings):
     # Endpoints in CreatorDB's official spec are enabled by default. List any
     # other endpoint key here only after scripts/rpi_verify_creatordb.py confirms it.
     creatordb_verified_endpoints: str = Field(default="")
+    # Reditus affiliate program API (read only): the daily rpi-reditus-sync task mirrors
+    # partnerships, referrals and commissions and links affiliates to creators.
+    reditus_api_key: str = Field(default="")
     # Set only after reviewing CreatorDB terms for derived scoring / AI analysis.
     rpi_creatordb_scoring_permitted: bool = Field(default=False)
     sparktoro_api_key: str = Field(default="")
