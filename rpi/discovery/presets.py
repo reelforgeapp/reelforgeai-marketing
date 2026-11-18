@@ -34,8 +34,8 @@ filter on a country's share. The creator's own country is the cheap proxy that
 works: adding `country` in US/UK/CA/AU/NZ/IE to the quality preset cut its pool
 from 215 to 78 creators, and those 78 include none of the 13 creators the gate
 has rejected and 8 of the 17 it passed. Creators with no country on CreatorDB
-are left out. The autopilot searches only these `english_based` presets (11
-filters, two credits per page); the others stay for manual runs.
+are left out. The autopilot searches only these `english_based` presets (10-11
+filters, one or two credits per page); the others stay for manual runs.
 `relatedCreators` (lookalike search) returned VALIDATION_ERROR with `=` and `in`.
 """
 
@@ -113,17 +113,36 @@ PRESETS: dict[str, dict[str, Any]] = {
                             "min_median_views": 10_000, "min_engagement_rate": 0.03},
 }
 # The same presets for creators who live in an English-speaking country (11
-# filters: two credits per page). quality_broad has no counterpart: its niches
-# are noisy and its income niches draw audiences outside these countries.
+# filters: two credits per page).
 _ENGLISH_BASED = {"countries": list(ENGLISH_SPEAKING_COUNTRIES)}
 PRESETS |= {
     "english_based": {**PRESETS["quality"], **_ENGLISH_BASED},
     "english_based_small": {**PRESETS["outside_range_small"], **_ENGLISH_BASED},
     "english_based_large": {**PRESETS["outside_range_large"], **_ENGLISH_BASED},
 }
-# Autopilot search order: the outside-range sizes come last, so they are
-# searched only after the main preset is exhausted.
-AUTOPILOT_PRESETS = ("english_based", "english_based_small", "english_based_large")
+# Wider relevance, added in 0.2.15 after the three presets above ran out (about
+# 89 creators in all by 2026-11-10). Hashtags are the creator's own channel tags,
+# so relevant channels that do not tag themselves never matched them.
+#   english_based_broad: CreatorDB topics AND niches (core and income), no hashtags
+#     (11 filters, two credits per page). The creator-country filter now keeps out
+#     the non-English audiences the income niches drew when quality_broad was
+#     searched without it.
+#   english_based_topics: CreatorDB topics alone (10 filters, one credit per page);
+#     the widest, searched last. It includes general AI channels, so more of what it
+#     finds fails screening; stage 1 ranks creators whose profile matches the niche
+#     first, and the weekly allowance caps what screening spends.
+# The 50% English-speaking-audience gate and every bought-view check still apply
+# in deep analysis, whatever preset found the creator.
+PRESETS |= {
+    "english_based_broad": {**PRESETS["quality_broad"], **_ENGLISH_BASED},
+    "english_based_topics": {**_GATES, "keywords": [], "topics": list(TOPICS), "niches": [], **_ENGLISH_BASED},
+}
+# Autopilot search order: the outside-range sizes come after the main preset and
+# the wider-relevance presets last, so each is searched only after the ones before
+# it are finished (and a finished preset is searched again before a later one
+# continues: rpi.administration.autopilot.current_preset).
+AUTOPILOT_PRESETS = ("english_based", "english_based_small", "english_based_large",
+                     "english_based_broad", "english_based_topics")
 DEFAULT_PRESET = "english_based"
 
 

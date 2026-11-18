@@ -165,6 +165,9 @@ class Settings(BaseSettings):
     rpi_send_weekdays_only: bool = Field(default=True)
     # RPI never cold-emails a creator the partnership bot exchanged email with this recently.
     rpi_external_conversation_days: int = Field(default=180)
+    # The autopilot searches a finished discovery preset again from its first page after
+    # this many days (CreatorDB adds creators; channels grow into the filters). 0 = never.
+    rpi_preset_research_days: int = Field(default=30, ge=0)
     # Email signature for RPI outreach (name and address come from Outreach settings).
     rpi_signature_title: str = Field(default="")  # e.g. "Founder & CEO"
     rpi_signature_website: str = Field(default="https://reelforgeai.io")
