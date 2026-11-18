@@ -42,8 +42,10 @@
   marked `replied` when they write in after an RPI email. That shows they wrote, not what they said, and anything
   they send before the next bot run is not yet visible. The autopilot sends no follow-ups; the bot answers people
   who write in.
-* Autopilot discovery stops when every preset has been paged through (an alert says so); it does not invent new
-  search criteria. CreatorDB adds creators over time, so clearing `discovery_cursor` later can find new ones.
+* Autopilot discovery pauses when every preset has been paged through (an alert says so) and searches each one
+  again from page one `RPI_PRESET_RESEARCH_DAYS` (default 30) after its last page; it does not invent new search
+  criteria. A repeat search pays for its pages again (one or two credits each), but creators RPI already scored are
+  not screened again.
 * Payment fees are estimated (2.9% + $0.30) and dispute fees are estimated ($15); balance-transaction fees are
   not fetched. External reconciliation against Stripe payouts is not implemented.
 * Chargebacks are recorded without a customer when the dispute payload only carries a charge id.

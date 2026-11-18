@@ -11,7 +11,9 @@ admin has it enabled in rpi_autopilot_settings. Each cycle:
    `send_time`, at most `daily_send_limit` a day.
 4. When fewer than `target_queue` messages are waiting, researches more
    creators: one page of the current discovery preset (continuing where the
-   last page ended), then screening and deep analysis, as an `autopilot` job.
+   last page ended; a finished preset is searched again from its first page
+   RPI_PRESET_RESEARCH_DAYS after its last one), then screening and deep
+   analysis, as an `autopilot` job.
    The provider gateway caps that job's CreatorDB credits at what is left of
    `weekly_credit_cap` over the last 7 days; USD budgets still apply as usual.
 5. Repeats steps 1-3 for creators the research just recommended.
@@ -89,14 +91,48 @@ def next_slots(count: int, *, now: datetime, taken: dict[date, int], per_day: in
     return out
 
 
-def current_preset(row: dict) -> tuple[Optional[str], Optional[str]]:
-    """(preset, page token) to search next; (None, None) once every preset is exhausted."""
+def finished_on(token: Optional[str]) -> Optional[date]:
+    """The day a preset's last page was searched, from its cursor value; None while
+    it has pages left. Cursors written before 0.2.17 hold a bare "end" with no day;
+    migration 013 dates them, and one still bare counts as long ago."""
+    if token == CURSOR_END:
+        return date.min
+    if isinstance(token, str) and token.startswith(CURSOR_END + ":"):
+        try:
+            return date.fromisoformat(token[len(CURSOR_END) + 1:])
+        except ValueError:
+            return date.min
+    return None
+
+
+def current_preset(row: dict, *, now: Optional[datetime] = None,
+                   research_days: int = 30) -> tuple[Optional[str], Optional[str]]:
+    """(preset, page token) to search next, in the order of `presets`: a preset with
+    pages left continues where it stopped, and a finished one starts again from the
+    first page once `research_days` have passed (CreatorDB adds creators, and channels
+    grow into the filters), so a higher-priority preset is searched again before a
+    lower one continues. (None, None) while every preset is finished and none is due;
+    `research_days` 0 never searches a finished preset again."""
     cursor = jsonb(row["discovery_cursor"]) or {}
+    today = (now or datetime.now(timezone.utc)).date()
     for preset in row["presets"] or []:
         token = cursor.get(preset)
-        if token != CURSOR_END:
+        ended = finished_on(token)
+        if ended is None:
             return preset, token
+        if research_days > 0 and (today - ended).days >= research_days:
+            return preset, None
     return None, None
+
+
+def next_research_on(row: dict, research_days: int) -> Optional[date]:
+    """The day the first finished preset is due to be searched again (None if never)."""
+    cursor = jsonb(row["discovery_cursor"]) or {}
+    ended = [finished_on(cursor.get(p)) for p in row["presets"] or []]
+    if research_days <= 0 or not ended or any(e is None for e in ended):
+        return None
+    first = min(ended)
+    return date.min if first == date.min else first + timedelta(days=research_days)
 
 
 def provider_name(ctx) -> str:
@@ -275,7 +311,9 @@ async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
             await _alert(conn, f"Autopilot research paused: the weekly allowance of {row['weekly_credit_cap']} CreatorDB "
                                f"credits is used. It resumes as credits age out of the 7-day window.", "allowance", now)
         return
-    preset, token = current_preset(row)
+    research_days = ctx.settings.rpi_preset_research_days
+    preset, token = current_preset(row, now=now, research_days=research_days)
+    repeat = bool(preset) and finished_on((jsonb(row["discovery_cursor"]) or {}).get(preset)) is not None
     params = {"unit_caps": {provider: str(allowance)}, "preset": preset, "page_token": token,
               "discover": row["discover_per_run"], "screen": row["screen_per_run"], "analyze": row["analyze_per_run"]}
     async with pool.acquire() as conn:
@@ -291,16 +329,17 @@ async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
             await conn.execute("UPDATE rpi_research_jobs SET status = 'canceled', finished_at = NOW() "
                                "WHERE id = $1 AND status = 'failed'", job_id)
             saved = jsonb(await conn.fetchval("SELECT progress FROM rpi_research_jobs WHERE id = $1", job_id)) or {}
-            await _advance_cursor(conn, row, preset, saved.get("discovery") or {}, now)
+            await _advance_cursor(conn, row, preset, saved.get("discovery") or {}, now, research_days)
             await _alert(conn, f"Autopilot research job failed: {str(exc)[:200]}", "failed", now)
         return
     progress = result.get("progress") or {}
     disc = progress.get("discovery") or {}
     async with pool.acquire() as conn:
-        await _advance_cursor(conn, row, preset, disc, now)
+        await _advance_cursor(conn, row, preset, disc, now, research_days)
         spent = await credits_used(conn, provider, now)
     summary["research"] = {
         "job_id": job_id, "status": result.get("status"), "preset": preset, "page_token": token,
+        **({"repeat_search": True} if repeat else {}),
         "discovery": {k: disc.get(k) for k in ("skipped", "total_found", "new_creators", "preliminary_qualified", "non_english")
                       if k in disc},
         "screened": len((progress.get("screen") or {}).get("done", [])),
@@ -319,17 +358,22 @@ async def _research(pool, ctx, row: dict, now: datetime, summary: dict) -> None:
                                "deep analysis retries them on the next run.", "creator_failed", now)
 
 
-async def _advance_cursor(conn, row: dict, preset: Optional[str], disc: dict, now: datetime) -> None:
-    """Continue after the page a search returned; a search that failed leaves the cursor alone."""
+async def _advance_cursor(conn, row: dict, preset: Optional[str], disc: dict, now: datetime,
+                          research_days: int) -> None:
+    """Continue after the page a search returned, or record the day the last page was
+    searched; a search that failed leaves the cursor alone."""
     if not (disc.get("searched") and preset):
         return
     cursor = jsonb(row["discovery_cursor"]) or {}
-    cursor[preset] = disc.get("next_page_token") or CURSOR_END
+    cursor[preset] = disc.get("next_page_token") or f"{CURSOR_END}:{now.date().isoformat()}"
     await conn.execute("UPDATE rpi_autopilot_settings SET discovery_cursor = $1::jsonb", json.dumps(cursor))
     row["discovery_cursor"] = cursor
-    if current_preset(row)[0] is None:
-        await _alert(conn, "Autopilot has searched every page of its discovery presets. Add a preset or "
-                           "widen the criteria to find new creators.", "exhausted", now)
+    if current_preset(row, now=now, research_days=research_days)[0] is None:
+        due = next_research_on(row, research_days)
+        again = (f"It searches each preset again {research_days} days after its last page, from {due.isoformat()}. "
+                 if due else "Searching finished presets again is off (RPI_PRESET_RESEARCH_DAYS=0). ")
+        await _alert(conn, "Autopilot has searched every page of its discovery presets. " + again
+                           + "Add a preset or widen the criteria to find new creators sooner.", "exhausted", now)
 
 
 # --------------------------------------------------------------------------
@@ -371,7 +415,10 @@ async def status(conn, ctx, now: Optional[datetime] = None) -> dict:
     row = await load_settings(conn)
     provider = provider_name(ctx)
     used = await credits_used(conn, provider, now)
-    preset, token = current_preset(row)
+    research_days = ctx.settings.rpi_preset_research_days
+    preset, token = current_preset(row, now=now, research_days=research_days)
+    cursor = jsonb(row["discovery_cursor"]) or {}
+    due = None if preset else next_research_on(row, research_days)
     upcoming = await conn.fetch(
         """SELECT d.id, c.display_name, d.scheduled_send_at, d.approved_by FROM rpi_outreach_drafts d
            JOIN rpi_creators c ON c.id = d.creator_id
@@ -382,13 +429,16 @@ async def status(conn, ctx, now: Optional[datetime] = None) -> dict:
         **{k: row[k] for k in ("enabled", "auto_approve", "weekly_credit_cap", "target_queue", "send_time",
                                "discover_per_run", "screen_per_run", "analyze_per_run", "presets", "updated_by",
                                "updated_at", "last_run_at")},
-        "discovery_cursor": jsonb(row["discovery_cursor"]) or {},
+        "discovery_cursor": cursor,
         "last_run": jsonb(row["last_run"]) or {},
         "provider": provider,
         "credits_used_7d": str(used),
         "credits_left_7d": str(max(Decimal(row["weekly_credit_cap"]) - used, Decimal(0))),
         "queue": await queue_depth(conn),
-        "next_search": {"preset": preset, "page_token": token} if preset else None,
+        "next_search": {"preset": preset, "page_token": token,
+                        "repeat": finished_on(cursor.get(preset)) is not None} if preset else None,
+        "preset_research_days": research_days,
+        "next_repeat_search_on": due.isoformat() if due else None,
         "candidates_waiting": await conn.fetchval(f"SELECT COUNT(*) {SCREEN_QUEUE_SQL}"),
         "upcoming": [{"draft_id": str(r["id"]), "creator": r["display_name"], "send_at": r["scheduled_send_at"],
                       "approved_by": r["approved_by"]} for r in upcoming],
