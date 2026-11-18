@@ -110,7 +110,8 @@ autopilot running; partnership-bot integration; product attribution integration.
 
 1. **Stripe endpoint** (owner): register `https://reelforgeai-marketing.onrender.com/rpi/api/v1/webhooks/stripe`
    and put its signing secret in `RPI_STRIPE_WEBHOOK_SECRET` (DEPLOYMENT_RUNBOOK §7).
-2. **Campaigns**: when a creator agrees, start tracking on their creator page with their Reditus `?ref=` code.
+2. **Campaigns**: when a creator joins the affiliate program, the daily Reditus sync starts tracking their `?red=` slug
+   (or start it on their creator page).
 3. **Housekeeping**: done 2026-10-26, except the CreatorDB cost per credit, which needs the plan's monthly credits.
    Database access is restricted to Render, budgets use single-admin control, and a point-in-time restore was tested.
 4. **Label** 50–100 benchmark channels (`docs/rpi/benchmark_template.csv`) → `scripts/rpi_benchmark.py --report`.

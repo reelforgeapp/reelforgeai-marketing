@@ -18,7 +18,7 @@
    30% for 12 months on 2026-10-25.
 7. **Stripe → RPI endpoint not registered yet.** The product reports signups and milestones (reelforge-backend,
    2026-10-26), but payments only reach RPI once the owner adds RPI's Stripe endpoint and secret. Signups before
-   the product integration went live are not in RPI. Landing-page touches are not sent (the signup `?ref=` code
+   the product integration went live are not in RPI. Landing-page touches are not sent (the signup referral code
    is the touch), and no per-render cost feed exists.
 8. **No labeled benchmark.** No accuracy claim is possible until 50–100 channels are manually labeled.
 9. **The documentation fetch outage** during the build left items in API_INTEGRATIONS.md marked unverified.
@@ -48,7 +48,19 @@
   not fetched. External reconciliation against Stripe payouts is not implemented.
 * Chargebacks are recorded without a customer when the dispute payload only carries a charge id.
 * Render/infra cost per customer is an allocation estimate until the product sends real per-render costs.
-* Commission accruals are estimates to reconcile against Reditus payouts; Reditus is not integrated.
+* Commission accruals are estimates. The Reditus panel shows them next to Reditus' own commissions per affiliate;
+  Reditus' figures are what affiliates are paid. RPI does not adjust its ledger to match.
+* The Reditus API does not expose commission rates or tiers (all affiliates are on "Standard Tier"), the
+  program's cookie window or whether its Stripe connection is on. RPI infers the last from paying customers that
+  Reditus has not credited, which needs RPI's own Stripe endpoint; until then the check has no data. The unit of
+  a partnership's `total_sold` and `commission_generated` is undocumented, so RPI reports commissions from the
+  commissions list (cents) instead.
+* RPI links an affiliate to a creator only by an existing campaign code, an email RPI holds for the creator or the
+  partnership bot saw, or a YouTube link in their Reditus profile. An affiliate who signs up with another address
+  and no channel link stays unlinked until someone starts tracking their slug on the creator page.
+* RPI only reads Reditus. Applications are accepted or declined, and commissions paid, in Reditus.
+* Reditus referrals created before 2026-11-14 carry no product user id, so they cannot be tied to RPI customers;
+  the missing-signup check starts on that date.
 * ICP definitions live in code (`DEFAULT_ICPS`); `rpi_icp_profiles` is reserved for overrides and not yet read.
 * Provider-sourced sponsorships have no content id, so repeated deep analysis can store duplicate rows for them.
 * The preliminary (stage-1) screen is deliberately inclusive: language, activity and size usually suffice, because

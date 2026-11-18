@@ -17,7 +17,7 @@ PostHog is never used as a financial ledger.
 
 ## Rules
 
-1. A **touch** is a visit carrying a campaign referral code (`?ref=`) or a campaign `utm_campaign`. Campaigns have
+1. A **touch** is a visit carrying a campaign referral code (`?red=` Reditus slug or `?ref=`) or a campaign `utm_campaign`. Campaigns have
    unique referral codes and UTM campaign values.
 2. Only touches **within the campaign's attribution window before signup** count (default 60 days, the
    `/affiliate-terms` cookie window).
@@ -48,20 +48,35 @@ POST /rpi/api/v1/attribution/milestone
 {"customer_ref": "<uuid>", "milestone": "first_render|first_export", "at": "..."}
 ```
 
-## Reditus code ↔ campaign
+## Reditus slug ↔ campaign
 
-Affiliate links are `reelforgeai.io/?ref=CODE` (Reditus). The product stores `CODE` as `users.referred_by_code` at
-every signup path, including accounts created at checkout, and sends it with `identify`. A campaign's
-`referral_code` is the creator's Reditus code, matched case-insensitively. Start tracking from the creator page
-(*Campaign tracking*) or `POST /campaigns`. Creating the campaign also attributes signups that used the code
-earlier: unlocked customers are re-attributed, and customers who already paid without any campaign get this one.
-A paid customer is never moved from another partner.
+Affiliate links are `reelforgeai.io/?red=SLUG` (Reditus). Since reelforge-backend PR #499 (2026-11-14) the
+product stores `SLUG` as `users.referred_by_code` at every signup path, including accounts created at checkout,
+sends it with `identify`, and reports the signup to Reditus with the user id as `uid`. (A bare `?ref=CODE` is
+also stored, for creator codes RPI hands out, but it is not reported to Reditus.) A campaign's `referral_code` is
+the creator's Reditus slug, matched case-insensitively. The Reditus sync starts tracking by itself for an
+accepted affiliate it links to a creator; otherwise start it from the creator page (*Campaign tracking*) or
+`POST /campaigns`. Creating the campaign also attributes signups that used the code earlier: unlocked customers
+are re-attributed, and customers who already paid without any campaign get this one. A paid customer is never
+moved from another partner.
+
+## Reditus sync (rpi.attribution.reditus)
+
+Reditus pays affiliates: it records the referral (click → signup) and its Stripe connection credits each
+payment of a referred customer as commission. RPI reads the program once a day (read only) and checks the two
+hand-offs that have failed before:
+
+* **Signup reached Reditus**: every RPI customer since 2026-11-14 whose signup code is an accepted affiliate's
+  slug must have a Reditus referral with their user id within a day; otherwise an alert says how many are
+  missing (their affiliates would not be paid).
+* **Payment credited**: a referred customer with a first payment more than two days old whose Reditus referral
+  is not `paid` raises a critical alert (check Reditus' Stripe connection). Needs RPI's Stripe endpoint.
 
 ## Product integration (reelforge-backend `backend/services/rpi-attribution.js`, live 2026-10-26)
 
 Implemented: `identify` after email, Google and checkout signups and whenever a Stripe customer is linked;
 `milestone first_render` where `first_value_reached` fires; `milestone first_export` on the first download or
-publish; the `?ref=` code carried through public checkout. Server-to-server, fire-and-forget, user id only (no
+publish; the referral code (Reditus `?red=` slug, or `?ref=`) carried through public checkout. Server-to-server, fire-and-forget, user id only (no
 email or name). Not implemented: landing-page `touch` calls (rule 3 makes the signup code the touch) and the
 per-render cost feed.
 
@@ -101,4 +116,5 @@ unless the product supplies `consent_state=granted`. The product currently has n
 For each revenue, discount or refund entry of a customer whose last-touch campaign has an **agreed** deal with a
 commission: commission = rate × net amount, for the commission duration (months since first payment). Refunds
 within 60 days of the first payment reverse commission (clawback). Accruals are idempotent per ledger entry and
-flagged as estimates to reconcile against actual affiliate payouts (Reditus).
+flagged as estimates. The Campaigns page shows them next to the commissions Reditus actually recorded for each
+affiliate (pending and paid); Reditus' figures are what is paid.

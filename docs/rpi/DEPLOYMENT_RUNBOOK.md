@@ -21,7 +21,8 @@ Set in Render (`render.yaml` declares the keys with `sync: false`): `RPI_BOOTSTR
 `RPI_ATTRIBUTION_HASH_SALT`, `RPI_PUBLIC_BASE_URL`, `ANTHROPIC_API_KEY`, `CREATORDB_API_KEY`,
 `CREATORDB_USD_PER_CREDIT`, `CREATORDB_VERIFIED_ENDPOINTS`, `RPI_CREATORDB_SCORING_PERMITTED`,
 `SPARKTORO_API_KEY`, `SPARKTORO_USD_PER_CREDIT`, `SUPADATA_API_KEY`, `SUPADATA_USD_PER_REQUEST`,
-`RPI_STRIPE_WEBHOOK_SECRET`, `RPI_STRIPE_PRICE_PLAN_MAP`, `POSTHOG_API_KEY`. See `.env.example` for all
+`RPI_STRIPE_WEBHOOK_SECRET`, `RPI_STRIPE_PRICE_PLAN_MAP`, `POSTHOG_API_KEY`, `REDITUS_API_KEY` (Reditus app
+settings → API; the same key the product's reelforge-api uses for signup tracking). See `.env.example` for all
 options. Do **not** set `RPI_ENABLE_FIXTURE_PROVIDER` in production: RPI requests and jobs then fail with
 `FixtureInProductionError` by design.
 

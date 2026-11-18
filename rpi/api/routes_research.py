@@ -20,6 +20,7 @@ from rpi.discovery.engine import STRATEGIES, DiscoveryRequest
 from rpi.discovery.presets import DEFAULT_PRESET, PRESETS, apply_preset
 from rpi.providers.base import CreatorSearchCriteria
 from rpi.providers.gateway import CallContext
+from rpi.attribution import reditus
 from rpi.storage.creators import creator_profile, delete_creator
 
 router = APIRouter()
@@ -181,6 +182,8 @@ async def compare(ids: str, ctx: RPIContext = Depends(get_ctx), _: Principal = D
 async def get_creator(creator_id: str, ctx: RPIContext = Depends(get_ctx), _: Principal = Depends(require("viewer"))):
     async with ctx.pool.acquire() as conn:
         prof = await creator_profile(conn, creator_id)
+        if prof:
+            prof["affiliate"] = await reditus.creator_affiliate(conn, creator_id)
     if not prof:
         raise HTTPException(404, "creator not found")
     for key in ("classification", "qualification"):

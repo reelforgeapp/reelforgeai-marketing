@@ -2,7 +2,8 @@
 ReelForge Partner Intelligence - Celery tasks
 
 Scheduled tasks: free, idempotent maintenance (retention, commission accrual,
-reconciliation alerts), sending scheduled approved drafts, and the autopilot.
+reconciliation alerts, the read-only Reditus sync), sending scheduled approved
+drafts, and the autopilot.
 The autopilot is the only scheduled task that can spend provider credits, and
 only after an admin enables it with a weekly credit allowance
 (rpi.administration.autopilot); with it off, paid research runs only when an
@@ -82,6 +83,28 @@ async def _ledger_checks_async() -> dict:
                 )
             logger.info("rpi_ledger_checks", accrued=accrued, ok=recon["ok"])
             return {"commissions_accrued": accrued, "reconciliation_ok": recon["ok"]}
+    finally:
+        await pool.close()
+
+
+@celery_app.task(bind=True, max_retries=0, queue='default')
+def rpi_reditus_sync(self):
+    # No retry: the sync is a full refresh, and a failure raises an alert; the
+    # next day's run (or POST /rpi/api/v1/reditus/sync) catches up.
+    return asyncio.run(_reditus_sync_async())
+
+
+async def _reditus_sync_async() -> dict:
+    from rpi.attribution.reditus import sync
+    from rpi.providers.reditus import ReditusClient
+
+    settings = get_settings()
+    if not settings.reditus_api_key:
+        return {"status": "not_configured"}
+    pool = await get_database_async()
+    try:
+        return await sync(pool, ReditusClient(settings.reditus_api_key),
+                          window_days=settings.rpi_affiliate_attribution_days)
     finally:
         await pool.close()
 
