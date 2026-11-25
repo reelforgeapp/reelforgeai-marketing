@@ -22,6 +22,7 @@ from rpi.administration.budget import Priority
 from rpi.core.audit import audit
 from rpi.providers.base import CreatorSearchCriteria
 from rpi.providers.gateway import CallContext
+from rpi.qualification.scoring import RECOMMEND_MIN_NICHE, RECOMMEND_MIN_OVERALL
 
 logger = structlog.get_logger()
 
@@ -134,6 +135,10 @@ async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop
             continue
         if stop is not None and await stop():
             return "stopped", {"done": sorted(done), "results": results}
+        if not await _cap_covers(pool, research, kind, ctx, job_id):
+            # Stopping before the creator, not halfway: a half-paid deep analysis is scored
+            # without its audience countries and was never picked up again (2026-11-05).
+            return "paused_budget", {"done": sorted(done), "results": results}
         try:
             r = await (research.screen(cid, ctx, actor) if kind == "screen" else research.deep(cid, ctx, actor))
         except Exception as exc:  # e.g. an unreadable model response; deep analysis is retried on a later run
@@ -146,6 +151,23 @@ async def _process(pool, research, kind, ids, ctx, progress, actor, job_id, stop
         if any("budget" in n for n in r.get("notes", [])):
             return "paused_budget", progress
     return "succeeded", progress
+
+
+async def _cap_covers(pool, research, kind, ctx, job_id) -> bool:
+    """False when a job credit cap (autopilot) has less left than one more
+    creator's `kind` stage can cost."""
+    needed = research.stage_credits(kind) if ctx.unit_caps and hasattr(research, "stage_credits") else {}
+    for provider, units in needed.items():
+        cap = ctx.unit_caps.get(provider)
+        if cap is None:
+            continue
+        async with pool.acquire() as conn:
+            used = await conn.fetchval(
+                """SELECT COALESCE(SUM(actual_units), 0) FROM rpi_spend_ledger
+                   WHERE job_id = $1 AND provider = $2 AND status = 'committed'""", job_id, provider)
+        if Decimal(used) + units > Decimal(str(cap)):
+            return False
+    return True
 
 
 # Creators an RPI discovery run found and preliminarily qualified, not yet
@@ -162,8 +184,10 @@ SCREEN_QUEUE_SQL = """
 async def _funnel(pool, research, ctx, progress, stages: StageSizes, actor, job_id, params, stop=None):
     """Stage 2 screens the best stage-1 candidates; stage 3-4 deep-analyzes
     the best screened creators, including any whose deep analysis was
-    interrupted (still in deep_analysis with only a stage-2 score). Sizes are
-    configurable per job."""
+    interrupted (still in deep_analysis with only a stage-2 score) or left
+    without the audience countries by a credit cap (GEOGRAPHY_RETRY_SQL).
+    Under a job credit cap, a stage stops before a creator it cannot pay for
+    in full. Sizes are configurable per job."""
     screen_n = int(params.get("screen", stages.screen))
     analyze_n = int(params.get("analyze", stages.analyze))
     async with pool.acquire() as conn:
@@ -181,7 +205,12 @@ async def _funnel(pool, research, ctx, progress, stages: StageSizes, actor, job_
                FROM rpi_qualification_scores q JOIN rpi_creators c ON c.id = q.creator_id
                WHERE c.pipeline_status IN ('preliminary_qualified', 'deep_analysis') AND c.disqualified_reason IS NULL
                ORDER BY q.creator_id, q.computed_at DESC""")
-    waiting = [r for r in to_deep if r["pipeline_status"] == "preliminary_qualified" or r["stage"] < 3]
+        # Deep analysis scored them high enough to need the audience countries, but a
+        # credit cap refused that lookup; the analysis is repeated to buy it.
+        retry = ({r["id"] for r in await conn.fetch(GEOGRAPHY_RETRY_SQL, RECOMMEND_MIN_OVERALL, RECOMMEND_MIN_NICHE)}
+                 if getattr(getattr(research, "config", None), "fetch_audience_demographics", False) else set())
+    waiting = [r for r in to_deep
+               if r["pipeline_status"] == "preliminary_qualified" or r["stage"] < 3 or r["creator_id"] in retry]
     ranked = sorted(waiting, key=lambda r: r["overall"] or 0, reverse=True)[:analyze_n]
     status, p3 = await _process(pool, research, "deep", [str(r["creator_id"]) for r in ranked], ctx,
                                 progress.get("deep", {}), actor, job_id, stop, parent=(progress, "deep"))
@@ -239,6 +268,23 @@ async def _autopilot(pool, discovery, research, ctx, progress, stages: StageSize
         return "succeeded", {**progress, "stopped": "autopilot turned off"}
     return status, progress
 
+
+# Deep-analyzed creators left at "investigate" only because their audience
+# countries are unknown (they meet the recommendation scores), whose audience
+# lookup a credit cap refused or a provider error stopped. A lookup that
+# returned no breakdown is not repeated.
+GEOGRAPHY_RETRY_SQL = """
+    SELECT c.id FROM rpi_creators c
+    JOIN LATERAL (SELECT stage, recommendation, overall, niche_relevance, risk_level, components
+                  FROM rpi_qualification_scores q WHERE q.creator_id = c.id ORDER BY q.computed_at DESC LIMIT 1) q ON TRUE
+    WHERE c.pipeline_status = 'deep_analysis' AND c.disqualified_reason IS NULL
+      AND q.stage >= 3 AND q.recommendation = 'investigate'
+      AND ROUND(q.overall::numeric, 3)::float8 >= $1::float8
+      AND ROUND(q.niche_relevance::numeric, 3)::float8 >= $2::float8
+      AND q.risk_level IS DISTINCT FROM 'elevated_review'
+      AND COALESCE(q.components->'audience_fit'->'geography'->>'verdict', 'unknown') = 'unknown'
+      AND NOT EXISTS (SELECT 1 FROM rpi_provider_requests r WHERE r.creator_id = c.id
+                      AND r.operation = 'get_audience_demographics' AND r.status NOT IN ('budget_denied', 'error'))"""
 
 CONTACT_RETRY_SQL = """
     SELECT c.id FROM rpi_creators c

@@ -30,6 +30,9 @@ SCORING_VERSION = "qual-2026-10-30.1"
 SATURATION_MIN_VIDEOS = 5
 MIN_ENGLISH_AUDIENCE_SHARE = 0.5
 GEOGRAPHY_LABEL = "English-speaking countries (US, UK, Canada, Australia, New Zealand, Ireland)"
+# A recommendation needs both; below them a creator is at most "investigate".
+RECOMMEND_MIN_OVERALL = 0.7
+RECOMMEND_MIN_NICHE = 0.6
 
 WEIGHTS = {
     "niche_relevance": 0.40,
@@ -232,7 +235,8 @@ def score(inp: QualificationInput, now: Optional[datetime] = None) -> Qualificat
     elif niche < 0.25 and inp.classification_confidence >= 0.6:
         recommendation = "reject_niche_mismatch"
         reasons.append(f"niche relevance {niche:.2f} below 0.25")
-    elif overall is not None and overall >= 0.7 and niche >= 0.6 and inp.risk_level != "elevated_review":
+    elif (overall is not None and overall >= RECOMMEND_MIN_OVERALL and niche >= RECOMMEND_MIN_NICHE
+          and inp.risk_level != "elevated_review"):
         if verdict == "unknown" and inp.require_english_audience:
             recommendation, awaiting_geography = "investigate", True
             reasons.append(f"audience geography unknown: a recommendation needs at least "

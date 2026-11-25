@@ -111,7 +111,9 @@ async def test_weekly_credit_allowance_stops_research(pool, fake_llm):
     async with pool.acquire() as conn:
         units = await conn.fetchval("SELECT SUM(actual_units) FROM rpi_spend_ledger WHERE status = 'committed'")
         denied = await conn.fetchval("SELECT COUNT(*) FROM rpi_provider_requests WHERE status = 'budget_denied'")
-    assert units <= 6 and denied >= 1
+    # Each stage stops before a creator the allowance cannot pay for in full, so no
+    # analysis is left half-paid and the gateway never has to refuse a call.
+    assert units <= 6 and denied == 0
     # The allowance is used up: the next cycle does not start research at all.
     again = await run_cycle(pool, ctx)
     assert "paused" in again["research"]
@@ -204,6 +206,110 @@ async def test_contact_lookup_refused_by_the_cap_is_retried_once_allowance_retur
                                         AUTOPILOT_ACTOR, job_id, {"screen": 10, "analyze": 5})
     assert status == "succeeded" and progress["discovery"] == {"skipped": "no discovery preset left"}
     assert research.deep_ids == [str(denied)]
+
+
+def test_stage_credits_cover_every_paid_lookup_of_the_stage():
+    from rpi.enrichment.service import ResearchConfig, ResearchService
+    from rpi.providers.creatordb import CreatorDBAdapter
+    from rpi.providers.registry import ProviderRegistry
+
+    registry = ProviderRegistry({"creatordb": CreatorDBAdapter("test-key")})
+    research = ResearchService(None, registry, None, None, ResearchConfig(None, None, True))
+    assert research.stage_credits("screen") == {"creatordb": Decimal(3)}  # content detail
+    # Profile 2 + sponsorship history 5 + audience countries 10 + contacts 15.
+    assert research.stage_credits("deep") == {"creatordb": Decimal(32)}
+    research.config.fetch_audience_demographics = False
+    assert research.stage_credits("deep") == {"creatordb": Decimal(22)}
+
+
+@pytest.mark.db
+async def test_a_stage_stops_before_a_creator_the_cap_cannot_pay_for_in_full(pool):
+    from rpi.administration.jobs import _process, create_job
+
+    class CostedResearch:
+        def __init__(self):
+            self.deep_ids: list[str] = []
+
+        def stage_credits(self, kind):
+            return {"creatordb": Decimal(32)}
+
+        async def deep(self, creator_id, ctx, actor):
+            self.deep_ids.append(creator_id)
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """INSERT INTO rpi_spend_ledger (provider, operation, job_id, actual_units, status)
+                       VALUES ('creatordb', 'get_audience_demographics', $1, 30, 'committed')""", ctx.job_id)
+            return {"qualification": {"recommendation": "recommend"}, "notes": []}
+
+    async with pool.acquire() as conn:
+        capped = await create_job(conn, "autopilot", {}, AUTOPILOT_ACTOR)
+        manual = await create_job(conn, "deep", {}, "admin:test")
+    research = CostedResearch()
+    # 70 credits: 32 fit before the first creator and before the second (30 spent), not before the third (60 spent).
+    status, progress = await _process(pool, research, "deep", ["a", "b", "c"],
+                                      CallContext(job_id=capped, unit_caps={"creatordb": Decimal(70)}), {},
+                                      AUTOPILOT_ACTOR, capped)
+    assert status == "paused_budget" and research.deep_ids == ["a", "b"] and progress["done"] == ["a", "b"]
+    # A job without a credit cap (a person's research request) is not held back.
+    research.deep_ids.clear()
+    status, _ = await _process(pool, research, "deep", ["a", "b", "c"], CallContext(job_id=manual), {}, "admin:test",
+                               manual)
+    assert status == "succeeded" and research.deep_ids == ["a", "b", "c"]
+
+
+@pytest.mark.db
+async def test_deep_analysis_a_cap_cut_short_is_repeated_to_buy_the_audience_countries(pool):
+    """2026-11-05: Prince Asiamah (0.74 overall, 0.66 niche) was analyzed with 9 credits
+    left; the audience lookup was refused and he stayed "investigate" for good."""
+    from rpi.administration.jobs import StageSizes, _autopilot, create_job
+    from rpi.enrichment.service import ResearchConfig
+
+    class RecordingResearch:
+        def __init__(self, fetch_audience=True):
+            self.config = ResearchConfig(None, None, True, fetch_audience_demographics=fetch_audience)
+            self.deep_ids: list[str] = []
+
+        async def screen(self, creator_id, ctx, actor):
+            raise AssertionError("nothing to screen")
+
+        async def deep(self, creator_id, ctx, actor):
+            self.deep_ids.append(str(creator_id))
+            return {"qualification": {"recommendation": "investigate"}, "notes": []}
+
+    async with pool.acquire() as conn:
+        async def analyzed(name, overall, niche, *, audience=None, verdict="unknown", risk="no_flags"):
+            cid = await conn.fetchval(
+                "INSERT INTO rpi_creators (display_name, pipeline_status) VALUES ($1, 'deep_analysis') RETURNING id", name)
+            await conn.execute(
+                """INSERT INTO rpi_qualification_scores
+                       (creator_id, scoring_version, stage, niche_relevance, overall, risk_level, recommendation, components)
+                   VALUES ($1, 'test', 3, $2, $3, $4, 'investigate', $5::jsonb)""",
+                cid, niche, overall, risk, json.dumps({"audience_fit": {"geography": {"verdict": verdict}}}))
+            if audience:
+                await conn.execute(
+                    """INSERT INTO rpi_provider_requests (provider, operation, request_hash, creator_id, status)
+                       VALUES ('creatordb', 'get_audience_demographics', 'h', $1, $2)""", cid, audience)
+            return str(cid)
+
+        refused = await analyzed("Cap refused the audience lookup", 0.74, 0.66, audience="budget_denied")
+        at_bar = await analyzed("Exactly at the bar, never looked up", 0.7, 0.6)  # REAL 0.7 is 0.69999999
+        await analyzed("Niche below the bar", 0.74, 0.55, audience="budget_denied")
+        await analyzed("Lookup found no breakdown", 0.8, 0.79, audience="ok")
+        await analyzed("Elevated risk", 0.8, 0.79, audience="budget_denied", risk="elevated_review")
+        await analyzed("Geography already failed", 0.8, 0.79, audience="budget_denied", verdict="failed")
+        jobs = [await create_job(conn, "autopilot", {}, AUTOPILOT_ACTOR) for _ in range(2)]
+        await conn.execute("UPDATE rpi_autopilot_settings SET enabled = TRUE")
+
+    params = {"screen": 10, "analyze": 10}
+    research = RecordingResearch()
+    status, _ = await _autopilot(pool, None, research, CallContext(job_id=jobs[0]), {}, StageSizes(),
+                                 AUTOPILOT_ACTOR, jobs[0], params)
+    assert status == "succeeded" and sorted(research.deep_ids) == sorted([refused, at_bar])
+    # With audience lookups turned off, repeating the analysis could not change the outcome.
+    research = RecordingResearch(fetch_audience=False)
+    await _autopilot(pool, None, research, CallContext(job_id=jobs[1]), {}, StageSizes(), AUTOPILOT_ACTOR, jobs[1],
+                     params)
+    assert research.deep_ids == []
 
 
 # --------------------------------------------------------------------------

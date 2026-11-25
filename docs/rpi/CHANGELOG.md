@@ -22,6 +22,22 @@ claimed by work not yet merged: PR #27 and the presenter-format check. Migration
   recommendation.
 * The autopilot status reports `next_repeat_search_on` and whether the next search is a repeat; the Autopilot page
   shows them, and the "every preset searched" alert names the day searching resumes.
+* **Creators are no longer stranded by the weekly allowance.** An autopilot run started research with as little as
+  3 credits left. On 2026-11-05 (9 credits left) and 2026-11-10 the cap refused the audience-country lookup in the
+  middle of a deep analysis: Prince Asiamah (0.74 overall) and ZAFFAI (0.80) met the recommendation scores but were
+  scored "investigate" without their audience countries, and the funnel never analyzed them again, because it only
+  picks creators without a stage-3 score. Two changes:
+  * Under a job credit cap a stage starts on a creator only while the cap still covers that creator's whole stage:
+    screening 3 credits (content detail), deep analysis 32 (profile 2, sponsorship history 5, audience countries 10,
+    contacts 15; 22 with `RPI_FETCH_AUDIENCE_DEMOGRAPHICS` off), from the provider's own price list. Otherwise the
+    run stops with "spending cap reached" before that creator. Jobs a person starts have no credit cap and are
+    unchanged.
+  * The deep stage also takes creators whose latest stage-3 score is "investigate" only for unknown audience
+    geography (overall >= 0.7, niche >= 0.6, no elevated risk) and whose audience lookup was refused by a cap or
+    stopped by a provider error, ranked with the rest by score. A lookup that returned no breakdown is not repeated.
+    The production snapshot of 2026-11-25 has exactly these two creators; each costs up to about 32 credits.
+* The recommendation thresholds are named constants (`RECOMMEND_MIN_OVERALL`, `RECOMMEND_MIN_NICHE` in
+  `rpi.qualification.scoring`); the values are unchanged.
 
 ## 0.2.16 — 2026-11-18
 

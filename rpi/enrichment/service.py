@@ -58,6 +58,15 @@ TRANSCRIPT_PREFERENCE = ("creatordb", "supadata", "fixture")
 DISQUALIFYING = {"reject_niche_mismatch": "niche_mismatch", "reject_suspect_engagement": "suspect_engagement",
                  "reject_audience_geography": "audience_outside_english_countries"}
 
+# Paid lookups one creator's research stage can make. Deep analysis buys the
+# profile (lifetime views), sponsorship history and audience countries, and the
+# contacts of a creator it recommends.
+STAGE_CAPABILITIES = {
+    "screen": (Capability.CREATOR_CONTENT,),
+    "deep": (Capability.CREATOR_PROFILE, Capability.SPONSORSHIP_HISTORY, Capability.AUDIENCE_DEMOGRAPHICS,
+             Capability.CREATOR_CONTACTS),
+}
+
 # Paid results that only matter through the qualification score.
 SCORING_INPUTS = {Capability.CREATOR_CONTENT, Capability.AUDIENCE_DEMOGRAPHICS, Capability.SPONSORSHIP_HISTORY,
                   Capability.TRANSCRIPT, Capability.CREATOR_PROFILE}
@@ -160,6 +169,19 @@ class ResearchService:
             await audit(conn, actor, "research.screen", "creator", creator_id,
                         {"recommendation": qual.get("recommendation"), "notes": notes[:5]})
         return {"creator_id": str(creator_id), "stage": 2, "qualification": qual, "notes": notes}
+
+    def stage_credits(self, kind: str) -> dict[str, Decimal]:
+        """Most provider units (credits) one creator's screening or deep analysis
+        can spend, per provider: what a job cap must still cover before the
+        stage starts on that creator."""
+        out: dict[str, Decimal] = {}
+        for capability in STAGE_CAPABILITIES[kind]:
+            if capability == Capability.AUDIENCE_DEMOGRAPHICS and not self.config.fetch_audience_demographics:
+                continue
+            adapter = self.registry.first_supporting(capability, CONTENT_PREFERENCE)
+            if adapter:
+                out[adapter.name] = out.get(adapter.name, Decimal(0)) + adapter.estimate_cost(capability).units
+        return out
 
     async def deep(self, creator_id, ctx: CallContext, actor: str = "system", include_contacts: bool = True) -> dict:
         notes: list[str] = []

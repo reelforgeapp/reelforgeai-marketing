@@ -27,7 +27,11 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
    scored are not screened or charged again. Then the funnel
    (*Screen per run*, *Deep-analyze per run*). The provider gateway refuses any CreatorDB call that would take the
    job past what is left of *Weekly credit allowance* over the last 7 days; USD budgets still apply. An allowance of
-   0 turns research off.
+   0 turns research off. A stage starts on a creator only while the allowance still covers that creator's whole
+   stage (screening 3 credits; deep analysis 32: profile, sponsorship history, audience countries and contacts), so
+   the run stops before a creator rather than leaving one half-analyzed. A creator who meets the recommendation
+   scores but whose audience-country lookup a cap refused anyway (or a provider error stopped) is analyzed again on
+   a later run, ahead of lower-scoring creators; so is a recommended creator whose contact lookup was refused.
 5. Drafts, approves and schedules again for creators the research recommended.
 
 Sending is unchanged: `rpi_send_scheduled` sends due drafts through every send rule. Autopilot never reads replies
