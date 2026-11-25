@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     min_relevance_score: float = Field(default=0.5)
 
     # Outreach compliance (CAN-SPAM): sending is refused until these are valid
-    company_legal_name: str = Field(default="Lydell Security LLC d/b/a ReelForge AI")
+    company_legal_name: str = Field(default="ReelForge AI")
     company_postal_address: str = Field(default="")  # street address, USPS PO box or private mailbox
     # Master switch for Partner Scout's automatic outreach (sequence emails and auto-enrollment).
     # false pauses both; unsubscribe/reply handling keeps running. Set on web and worker.

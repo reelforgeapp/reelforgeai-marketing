@@ -266,4 +266,4 @@ View in Render Dashboard → Logs
 
 ## License
 
-Proprietary - Lydell Security
+Proprietary - ReelForge AI
