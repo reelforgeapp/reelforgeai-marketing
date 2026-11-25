@@ -1,5 +1,44 @@
 # RPI changelog
 
+## 0.2.17 — 2026-11-25
+
+(This work claimed 0.2.15; it ships as 0.2.17 because 0.2.16 was released first. 0.2.13 and 0.2.14 are still
+claimed by work not yet merged: PR #27 and the presenter-format check. Migration 013 keeps its number.)
+
+* **Finished discovery presets are searched again.** The three `english_based` presets ran out by 2026-11-10
+  (about 89 creators in all), and every daily run since reported "no discovery preset left" with most of the
+  weekly allowance unused. A finished preset now records the day of its last page (`end:YYYY-MM-DD` in
+  `discovery_cursor`) and starts again from page one `RPI_PRESET_RESEARCH_DAYS` days later (default 30; 0 turns it
+  off), ahead of the presets after it. CreatorDB adds creators, and channels grow into the filters (two uploads in
+  30 days, median views, subscribers). Creators RPI already scored are not screened again, so a repeat search costs
+  only its pages. Migration 013 dates cursors written before this release (a bare `end`) with the day it runs, so
+  the new presets are searched first; run it after the code deploy, because older code would send a dated cursor to
+  CreatorDB as a page offset.
+* **Two wider presets** (migration `013_rpi_wider_presets`, appended to the autopilot order once; an admin's later
+  choice stands): `english_based_broad` is `quality_broad` (CreatorDB topics AND core and income niches) plus the
+  creator country, 11 filters, two credits per page; `english_based_topics` is the topics alone plus every gate,
+  10 filters, one credit per page, searched last. Both drop the hashtag filter, which matches only a creator's own
+  channel tags. The 50% English-speaking-audience gate and the bought-view checks still decide every
+  recommendation.
+* The autopilot status reports `next_repeat_search_on` and whether the next search is a repeat; the Autopilot page
+  shows them, and the "every preset searched" alert names the day searching resumes.
+* **Creators are no longer stranded by the weekly allowance.** An autopilot run started research with as little as
+  3 credits left. On 2026-11-05 (9 credits left) and 2026-11-10 the cap refused the audience-country lookup in the
+  middle of a deep analysis: Prince Asiamah (0.74 overall) and ZAFFAI (0.80) met the recommendation scores but were
+  scored "investigate" without their audience countries, and the funnel never analyzed them again, because it only
+  picks creators without a stage-3 score. Two changes:
+  * Under a job credit cap a stage starts on a creator only while the cap still covers that creator's whole stage:
+    screening 3 credits (content detail), deep analysis 32 (profile 2, sponsorship history 5, audience countries 10,
+    contacts 15; 22 with `RPI_FETCH_AUDIENCE_DEMOGRAPHICS` off), from the provider's own price list. Otherwise the
+    run stops with "spending cap reached" before that creator. Jobs a person starts have no credit cap and are
+    unchanged.
+  * The deep stage also takes creators whose latest stage-3 score is "investigate" only for unknown audience
+    geography (overall >= 0.7, niche >= 0.6, no elevated risk) and whose audience lookup was refused by a cap or
+    stopped by a provider error, ranked with the rest by score. A lookup that returned no breakdown is not repeated.
+    The production snapshot of 2026-11-25 has exactly these two creators; each costs up to about 32 credits.
+* The recommendation thresholds are named constants (`RECOMMEND_MIN_OVERALL`, `RECOMMEND_MIN_NICHE` in
+  `rpi.qualification.scoring`); the values are unchanged.
+
 ## 0.2.16 — 2026-11-18
 
 (0.2.13 to 0.2.15 are claimed by work not yet merged: PR #27, the presenter-format check and PR #28.)

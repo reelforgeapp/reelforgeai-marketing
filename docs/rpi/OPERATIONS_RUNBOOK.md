@@ -19,11 +19,19 @@ The worker runs it daily at 07:30 America/New_York, and *Run now* (`POST /autopi
    draft whose schedule was cancelled with a reason is left alone.
 4. Researches only when fewer than *Keep this many messages waiting* are scheduled or awaiting approval: one page of
    the current preset (`english_based`, then `english_based_small` and `english_based_large` for 3k–10k and
-   150k–500k subscribers with stricter relevance; all three only find creators who live in the US, UK, Canada,
-   Australia, New Zealand or Ireland), continuing after the last page it searched, then the funnel
+   150k–500k subscribers with stricter relevance, then `english_based_broad` (CreatorDB topics and niches, no
+   hashtags) and `english_based_topics` (topics alone, the widest); all five only find creators who live in the US,
+   UK, Canada, Australia, New Zealand or Ireland), continuing after the last page it searched. A preset whose last
+   page was searched starts again from its first page `RPI_PRESET_RESEARCH_DAYS` (default 30) days later, ahead of
+   the presets after it, because CreatorDB adds creators and channels grow into the filters. Creators RPI already
+   scored are not screened or charged again. Then the funnel
    (*Screen per run*, *Deep-analyze per run*). The provider gateway refuses any CreatorDB call that would take the
    job past what is left of *Weekly credit allowance* over the last 7 days; USD budgets still apply. An allowance of
-   0 turns research off.
+   0 turns research off. A stage starts on a creator only while the allowance still covers that creator's whole
+   stage (screening 3 credits; deep analysis 32: profile, sponsorship history, audience countries and contacts), so
+   the run stops before a creator rather than leaving one half-analyzed. A creator who meets the recommendation
+   scores but whose audience-country lookup a cap refused anyway (or a provider error stopped) is analyzed again on
+   a later run, ahead of lower-scoring creators; so is a recommended creator whose contact lookup was refused.
 5. Drafts, approves and schedules again for creators the research recommended.
 
 Sending is unchanged: `rpi_send_scheduled` sends due drafts through every send rule. Autopilot never reads replies
@@ -31,7 +39,8 @@ and never sends follow-ups, so each creator gets at most one autopilot email. Re
 marketing@reelforgeai.io inbox, where the partnership bot (reelforge-backend `scripts/partnership-bot`, daily at
 14:00 UTC) answers them. The bot reports its contacts to RPI after each run, which marks `replied` creators and
 keeps RPI from cold-emailing anyone the bot is talking to. Alerts appear when the allowance is used up, when every preset has been
-searched, and when a research job fails. A failed autopilot job is canceled, not resumed (`/jobs/{id}/resume`
+searched (with the day the first one is searched again; the Autopilot page shows it too), and when a research job
+fails. A failed autopilot job is canceled, not resumed (`/jobs/{id}/resume`
 refuses autopilot jobs), because its credit cap belonged to that run.
 
 To stop everything, turn *On* off. Research stops before the next creator, the drafts the autopilot approved are
@@ -114,7 +123,11 @@ Search relevance limits, from live tests on 2026-10-25: CreatorDB niches are has
 that publish AI content rather than teach it. Screening the recent videos is what separates them. The default
 preset `english_based` also requires the creator to live in an English-speaking country, because CreatorDB's
 audience-country filter checks only the largest country (2026-10-31: the remaining pool contained none of the creators
-the 50% audience gate had rejected). Use `quality` (same filters without the creator's country; almost three times the pool, but
+the 50% audience gate had rejected). The three `english_based` presets ran out by
+2026-11-10 after about 89 creators, so the autopilot continues with `english_based_broad` (topics AND niches, two
+credits per page) and `english_based_topics` (topics alone, one credit per page). Both drop the hashtag filter,
+which matches only the creator's own channel tags; more of what they find fails screening, which the weekly
+allowance caps. Use `quality` (same filters without the creator's country; almost three times the pool, but
 12 of the 27 checked creators among its first 100 failed the audience gate) or `quality_broad` (topics + niches, including income niches) for a wider pool, or
 `preset: "none"` to search with only the fields you send.
 
