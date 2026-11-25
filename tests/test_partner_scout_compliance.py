@@ -22,7 +22,7 @@ from services.ai_personalization import AIPersonalizationService
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "database" / "migrations" / "004_compliant_email_templates.sql"
-ADDRESS = "123 Example Street, Suite 4, Fayetteville, GA 30214, USA"
+ADDRESS = "123 Example Street, Suite 4, Atlanta, GA 30318, USA"
 ADMIN_KEY = "test-admin-key-0123456789abcdef"
 PID = "6f1c2c8e-8a4b-4d39-9b8f-3c0b7a5d1e22"
 
@@ -52,12 +52,20 @@ def test_missing_address_blocks_sending(settings, monkeypatch):
     assert any("signing key" in p for p in compliance.compliance_problems(settings))
 
 
+def test_footer_names_the_company_once(settings, monkeypatch):
+    monkeypatch.setattr(settings, "brevo_sender_name", "ReelForge AI")
+    html, text, _ = compliance.finalize_email(settings, PID, "<p>Hi</p>", "Hi")
+    for body in (html, text):
+        assert "ReelForge AI, ReelForge AI" not in body and "ReelForge AI" in body
+
+
 def test_footer_and_headers(settings):
     html, text, headers = compliance.finalize_email(settings, PID, "<p>Hi there,</p>", "Hi there,")
     url = compliance.unsubscribe_url(settings, PID)
     assert url.startswith(f"https://marketing.example.test/unsubscribe/{PID}?t=")
     for body in (html, text):
-        assert "Lydell Security LLC d/b/a ReelForge AI" in body and "Fayetteville, GA 30214" in body
+        assert f"{settings.brevo_sender_name}, ReelForge AI" in body and "Atlanta, GA 30318" in body
+        assert "Lydell" not in body  # ReelForge AI and Lydell Security are separate companies
     assert url in text and url.replace("&", "&amp;") in html
     assert headers == {"List-Unsubscribe": f"<{url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
 

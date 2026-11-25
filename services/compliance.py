@@ -98,17 +98,19 @@ def finalize_email(settings, prospect_id: str, html_body: str, text_body: Option
     """Append the compliance footer. Callers must check compliance_problems() first."""
     url = unsubscribe_url(settings, prospect_id)
     sender = settings.brevo_sender_name or "ReelForge AI"
-    company = settings.company_legal_name
+    company = settings.company_legal_name.strip()
+    # "ReelForge AI, ReelForge AI" when the sender name is already the company name
+    who = sender if company.lower() in sender.lower() else f"{sender}, {company}"
     address = settings.company_postal_address.strip()
     footer_text = (
-        f"\n\n--\n{sender}, {company}\n{address}\n"
+        f"\n\n--\n{who}\n{address}\n"
         f"You received this because you publish content about AI video tools. "
         f"To stop hearing from us, unsubscribe here: {url} or reply \"unsubscribe\"."
     )
     footer_html = (
         '<hr style="border:none;border-top:1px solid #ddd;margin:24px 0 12px">'
         '<p style="color:#666;font-size:12px;line-height:1.5">'
-        f"{html.escape(sender)}, {html.escape(company)}<br>{html.escape(address).replace(chr(10), '<br>')}<br>"
+        f"{html.escape(who)}<br>{html.escape(address).replace(chr(10), '<br>')}<br>"
         "You received this because you publish content about AI video tools. "
         f'<a href="{html.escape(url)}">Unsubscribe</a> or reply &quot;unsubscribe&quot; and we won\'t contact you again.</p>'
     )
